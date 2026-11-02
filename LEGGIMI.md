@@ -25,7 +25,7 @@ Le foto stanno in Firestore e non in Storage, così basta il piano gratuito.
 
 1. **Regole**: in Firestore → Regole incolla il contenuto di `firestore.rules`. Contiene già anche le regole
    dell'altra app e aggiunge `scontrini` e `scontrini_foto`. Poi fai clic su Pubblica.
-2. **Accesso**: le regole richiedono un'email verificata, quindi si entra con **Accedi con Google**.
+2. **Accesso**: si entra solo con **Accedi con Google** (le regole richiedono un'email verificata).
    In Authentication → Metodo di accesso, il provider **Google** deve essere attivo.
 3. **Configurazione**: in ⚙️ Impostazioni progetto → Le tue app copia `firebaseConfig` (lo stesso dell'altra app)
    nel file `firebase-config.js`.

@@ -1,7 +1,7 @@
 // Codice condiviso dalle due app: connessione a Firebase, login e funzioni di utilità.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+  getAuth, onAuthStateChanged, signOut,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
@@ -66,44 +66,24 @@ export function setupAuth({ onLogin, onLogout }) {
   const err = login.querySelector(".err");
   if (!configurato) document.getElementById("config-warning").hidden = false;
 
-  // Accesso con Google (le regole del database richiedono un'email verificata, come avviene con Google)
-  const gBtn = document.createElement("button");
-  gBtn.type = "button";
-  gBtn.className = "btn primary";
-  gBtn.textContent = "Accedi con Google";
-  const sep = document.createElement("p");
-  sep.className = "muted center";
-  sep.style.cssText = "font-size:.85rem;margin-top:16px";
-  sep.textContent = "oppure con email e password";
-  form.querySelector("label").before(gBtn, sep);
-  form.querySelector("[type=submit]").classList.remove("primary");
+  // Accesso solo con Google: le regole del database richiedono un'email verificata.
+  const gBtn = document.getElementById("google-login");
   gBtn.addEventListener("click", async () => {
     err.textContent = "";
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
+    gBtn.disabled = true;
     try {
       await signInWithPopup(auth, provider);
     } catch (x) {
       if (/popup-blocked|operation-not-supported/.test(x.code || "")) return signInWithRedirect(auth, provider);
       if (!/popup-closed|cancelled-popup/.test(x.code || "")) err.textContent = "Accesso non riuscito: " + (x.message || x);
-    }
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    err.textContent = "";
-    const btn = form.querySelector("[type=submit]");
-    btn.disabled = true;
-    try {
-      await signInWithEmailAndPassword(auth, form.email.value.trim(), form.password.value);
-    } catch (x) {
-      err.textContent = /invalid|wrong|not-found|credential/i.test(x.code || "")
-        ? "Email o password non corretti."
-        : "Accesso non riuscito: " + (x.message || x);
     } finally {
-      btn.disabled = false;
+      gBtn.disabled = false;
     }
   });
+  form.addEventListener("submit", (e) => e.preventDefault());
+
   document.querySelectorAll("[data-logout]").forEach((b) =>
     b.addEventListener("click", () => signOut(auth)));
 
@@ -119,7 +99,9 @@ export function listen(nome, cb, ...vincoli) {
   return onSnapshot(
     query(collection(db, nome), ...vincoli),
     (snap) => cb(snap.docs.map((d) => ({ ...d.data(), id: d.id }))),
-    (e) => toast("Errore di lettura (" + nome + "): " + e.message)
+    (e) => toast(e.code === "permission-denied"
+      ? `L'account ${auth.currentUser?.email || ""} non è autorizzato. Esci ed entra con l'account Google giusto.`
+      : "Errore di lettura (" + nome + "): " + e.message)
   );
 }
 
