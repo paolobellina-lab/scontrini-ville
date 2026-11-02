@@ -4,7 +4,7 @@ Le app sono due e usano lo stesso database Firebase:
 
 | Cartella | App | Cosa fa |
 |---|---|---|
-| `scontrini/` | **Scontrini** | Fotografi lo scontrino, scrivi importo e motivo, scegli villa e prenotazione |
+| `scontrini/` | **Scontrini** | Fotografi lo scontrino, scrivi importo e motivo, scegli villa e prenotazione; nella scheda Inseriti li ritrovi filtrando per villa e prenotazione |
 | `consulta/` | **Spese Ville** | Vedi tutti gli scontrini raggruppati per **villa → prenotazione**, con i totali, le foto e l'esportazione per Excel |
 
 ## Come sono organizzati i dati (Firestore, database "(default)")

@@ -11,6 +11,7 @@
 <link rel="apple-touch-icon" href="../shared/icona-scontrini-512.png">
 <link rel="icon" href="../shared/icona-scontrini-192.png">
 <link rel="stylesheet" href="../shared/style.css">
+<style>@media (max-width: 560px) { #tab-inseriti .filters { grid-template-columns: 1fr; } }</style>
 </head>
 <body>
 <div id="config-warning" class="banner" hidden>Manca la configurazione di Firebase: compila il file <b>firebase-config.js</b> (vedi LEGGIMI).</div>
@@ -31,7 +32,7 @@
   </header>
   <nav class="tabs">
     <button data-tab="nuovo" class="active">Nuovo</button>
-    <button data-tab="ultimi">Ultimi inseriti</button>
+    <button data-tab="inseriti">Inseriti</button>
   </nav>
 
   <main>
@@ -68,9 +69,16 @@
       </form>
     </section>
 
-    <!-- Ultimi inseriti -->
-    <section id="tab-ultimi" hidden>
-      <p class="muted" style="margin:4px 2px 10px">Gli ultimi 50 scontrini. Tocca per modificare.</p>
+    <!-- Inseriti -->
+    <section id="tab-inseriti" hidden>
+      <div class="card filters">
+        <label>Villa<select id="fil-villa"></select></label>
+        <label>Prenotazione<select id="fil-pren" disabled></select></label>
+      </div>
+      <div class="row" style="justify-content:space-between;margin:0 2px 10px">
+        <span id="fil-info" class="muted"></span>
+        <strong id="fil-tot" class="amount"></strong>
+      </div>
       <div id="lista" class="list"></div>
     </section>
 
@@ -80,14 +88,14 @@
 
 <script type="module">
 import {
-  db, setupAuth, listen, collection, doc, getDoc, orderBy, limit, serverTimestamp, writeBatch,
+  db, setupAuth, listen, collection, doc, getDoc, serverTimestamp, writeBatch,
   CATEGORIE, COLL, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
 const $ = (id) => document.getElementById(id);
 const f = $("f");
-let user = null, ville = [], pren = [], ultimi = [], unsubs = [];
+let user = null, ville = [], pren = [], tutti = [], unsubs = [];
 let editId = null, fotoNuova = null, prenManuale = false;
 
 f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
@@ -100,9 +108,9 @@ setupAuth({
       listen(COLL.prenotazioni, (p) => {
         pren = p.map(normPren).filter((x) => x.villaId && x.checkIn && x.checkOut)
           .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
-        renderPrenSelect(); renderUltimi();
+        renderPrenSelect(); renderLista();
       }),
-      listen("scontrini", (s) => { ultimi = s; renderUltimi(); }, orderBy("creatoIl", "desc"), limit(50)),
+      listen("scontrini", (s) => { tutti = s; renderLista(); }),
     ];
     resetForm();
   },
@@ -113,7 +121,7 @@ setupAuth({
 document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 function showTab(t) {
   document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
-  ["nuovo", "ultimi"].forEach((x) => ($("tab-" + x).hidden = x !== t));
+  ["nuovo", "inseriti"].forEach((x) => ($("tab-" + x).hidden = x !== t));
   window.scrollTo(0, 0);
 }
 
@@ -123,7 +131,7 @@ function renderVille() {
   f.villaId.innerHTML = `<option value="">— Scegli la villa —</option>` +
     ville.map((v) => `<option value="${esc(v.id)}">${esc(v.nome)}</option>`).join("");
   f.villaId.value = ville.some((v) => v.id === cur) ? cur : ville.length === 1 ? ville[0].id : "";
-  renderPrenSelect(); renderUltimi();
+  renderPrenSelect(); renderLista();
 }
 
 /* Menu prenotazioni nel modulo: si sceglie da solo in base a villa e data */
@@ -198,7 +206,7 @@ f.onsubmit = async (e) => {
   } else toast(editId ? "Scontrino aggiornato" : "Scontrino salvato");
   const eraModifica = !!editId;
   resetForm();
-  if (eraModifica) showTab("ultimi");
+  if (eraModifica) showTab("inseriti");
 };
 
 function resetForm() {
@@ -212,7 +220,7 @@ function resetForm() {
   $("annulla").hidden = $("elimina").hidden = true;
   renderPrenSelect();
 }
-$("annulla").onclick = () => { resetForm(); showTab("ultimi"); };
+$("annulla").onclick = () => { resetForm(); showTab("inseriti"); };
 $("elimina").onclick = () => {
   if (!editId || !confirm("Eliminare definitivamente questo scontrino?")) return;
   const b = writeBatch(db);
@@ -221,25 +229,66 @@ $("elimina").onclick = () => {
   b.commit().catch((x) => toast("Errore: " + x.message));
   toast("Scontrino eliminato");
   resetForm();
-  showTab("ultimi");
+  showTab("inseriti");
 };
 
-/* ---------- Ultimi inseriti ---------- */
-function renderUltimi() {
-  $("lista").innerHTML = ultimi.length ? ultimi.map((s) => {
+/* ---------- Inseriti, con filtri per villa e prenotazione ---------- */
+const GEN = "__generale";
+const chiavePren = (s) => trovaPren(s, pren)?.id || GEN;
+
+function renderFiltri() {
+  const fv = $("fil-villa"), fp = $("fil-pren");
+  const curV = fv.value, curP = fp.value;
+  const conta = {};
+  tutti.forEach((s) => (conta[s.villaId] = (conta[s.villaId] || 0) + 1));
+  const idsVille = Object.keys(conta).sort((a, b) =>
+    (ville.find((v) => v.id === a)?.nome || a).localeCompare(ville.find((v) => v.id === b)?.nome || b, "it", { numeric: true }));
+  fv.innerHTML = `<option value="">Tutte le ville (${tutti.length})</option>` + idsVille.map((id) =>
+    `<option value="${esc(id)}">${esc(ville.find((v) => v.id === id)?.nome || "Villa " + id)} (${conta[id]})</option>`).join("");
+  fv.value = conta[curV] ? curV : "";
+
+  const vid = fv.value;
+  fp.disabled = !vid;
+  if (!vid) { fp.innerHTML = `<option value="">Prima scegli la villa</option>`; return; }
+  const gruppi = new Map(); // id prenotazione -> {p, n}
+  tutti.filter((s) => s.villaId === vid).forEach((s) => {
+    const p = trovaPren(s, pren), k = p?.id || GEN;
+    if (!gruppi.has(k)) gruppi.set(k, { p, n: 0 });
+    gruppi.get(k).n++;
+  });
+  const lista = [...gruppi.entries()].filter(([k]) => k !== GEN)
+    .sort((a, b) => b[1].p.checkIn.localeCompare(a[1].p.checkIn));
+  fp.innerHTML = `<option value="">Tutte le prenotazioni</option>` +
+    (gruppi.has(GEN) ? `<option value="${GEN}">Spese generali della villa (${gruppi.get(GEN).n})</option>` : "") +
+    lista.map(([k, { p, n }]) => `<option value="${esc(k)}">${esc(labelPren(p))}${p.nonInCalendario ? " · non più in calendario" : ""} (${n})</option>`).join("");
+  fp.value = gruppi.has(curP) ? curP : "";
+}
+$("fil-villa").onchange = () => { $("fil-pren").value = ""; renderLista(); };
+$("fil-pren").onchange = () => renderLista();
+
+function renderLista() {
+  renderFiltri();
+  const vid = $("fil-villa").value, pid = $("fil-pren").value;
+  const righe = tutti
+    .filter((s) => (!vid || s.villaId === vid) && (!pid || chiavePren(s) === pid))
+    .sort((a, b) => b.data.localeCompare(a.data) || (b.creatoIl?.seconds || 0) - (a.creatoIl?.seconds || 0));
+  const tot = righe.reduce((t, s) => t + (Number(s.importo) || 0), 0);
+  $("fil-info").textContent = `${righe.length} ${righe.length === 1 ? "scontrino" : "scontrini"} · tocca per modificare`;
+  $("fil-tot").textContent = righe.length ? euro(tot) : "";
+  $("lista").innerHTML = righe.length ? righe.map((s) => {
     const v = ville.find((x) => x.id === s.villaId);
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
-      <div class="item-main"><strong>${esc(v?.nome || "Villa non trovata")}</strong>
+      <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
         <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
       <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
-  }).join("") : `<p class="muted center">Ancora nessuno scontrino.</p>`;
+  }).join("") : `<p class="muted center">${tutti.length ? "Nessuno scontrino con questi filtri." : "Ancora nessuno scontrino."}</p>`;
 }
 $("lista").onclick = async (e) => {
   const b = e.target.closest("[data-s]");
-  const s = b && ultimi.find((x) => x.id === b.dataset.s);
+  const s = b && tutti.find((x) => x.id === b.dataset.s);
   if (!s) return;
   editId = s.id; fotoNuova = null; prenManuale = true;
   f.villaId.value = s.villaId;
