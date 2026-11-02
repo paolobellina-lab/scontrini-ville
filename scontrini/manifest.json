@@ -1,0 +1,14 @@
+{
+  "name": "Scontrini Ville",
+  "short_name": "Scontrini",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f1ea",
+  "theme_color": "#b5532f",
+  "icons": [
+    { "src": "../shared/icona-scontrini-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../shared/icona-scontrini-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

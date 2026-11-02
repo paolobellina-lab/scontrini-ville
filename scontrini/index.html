@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scontrini Ville</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#b5532f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scontrini">
+<link rel="apple-touch-icon" href="../shared/icona-scontrini-512.png">
+<link rel="icon" href="../shared/icona-scontrini-192.png">
+<link rel="stylesheet" href="../shared/style.css">
+</head>
+<body>
+<div id="config-warning" class="banner" hidden>Manca la configurazione di Firebase: compila il file <b>firebase-config.js</b> (vedi LEGGIMI).</div>
+
+<section id="login" class="login" hidden>
+  <form class="card">
+    <h1>Scontrini Ville</h1>
+    <p class="muted" style="margin:4px 0 0">Accedi con il tuo account</p>
+    <label>Email<input name="email" type="email" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Entra</button>
+    <p class="err"></p>
+  </form>
+</section>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Scontrini</h1></div>
+    <button class="link" data-logout>Esci</button>
+  </header>
+  <nav class="tabs">
+    <button data-tab="nuovo" class="active">Nuovo</button>
+    <button data-tab="ultimi">Ultimi inseriti</button>
+  </nav>
+
+  <main>
+    <!-- Nuovo / modifica scontrino -->
+    <section id="tab-nuovo">
+      <form id="f" class="card stack" autocomplete="off">
+        <h2 id="f-title">Nuovo scontrino</h2>
+        <div class="photo">
+          <img id="preview" alt="Foto dello scontrino" hidden>
+          <div id="photo-empty" class="photo-empty">Nessuna foto</div>
+          <div class="row">
+            <label class="btn primary"><input type="file" accept="image/*" capture="environment" id="cam" hidden>Scatta foto</label>
+            <label class="btn"><input type="file" accept="image/*" id="gal" hidden>Dalla galleria</label>
+          </div>
+        </div>
+        <div class="grid2">
+          <label>Data<input type="date" name="data" required></label>
+          <label>Importo (€)<input name="importo" inputmode="decimal" placeholder="0,00" required></label>
+        </div>
+        <label>Villa<select name="villaId" required></select></label>
+        <label>Prenotazione
+          <select name="prenotazioneId"></select>
+          <small id="pren-hint" class="muted" style="font-weight:400"></small>
+        </label>
+        <label>Categoria<select name="categoria"></select></label>
+        <label>Motivo della spesa
+          <textarea name="motivo" rows="3" required placeholder="Es. pulizia finale dopo la partenza degli ospiti"></textarea>
+        </label>
+        <div class="row">
+          <button class="btn primary grow" type="submit">Salva scontrino</button>
+          <button class="btn" type="button" id="annulla" hidden>Annulla</button>
+        </div>
+        <button class="btn danger" type="button" id="elimina" hidden>Elimina scontrino</button>
+      </form>
+    </section>
+
+    <!-- Ultimi inseriti -->
+    <section id="tab-ultimi" hidden>
+      <p class="muted" style="margin:4px 2px 10px">Gli ultimi 50 scontrini. Tocca per modificare.</p>
+      <div id="lista" class="list"></div>
+    </section>
+
+  </main>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script type="module">
+import {
+  db, setupAuth, listen, collection, doc, getDoc, orderBy, limit, serverTimestamp, writeBatch,
+  CATEGORIE, COLL, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  parseImporto, labelPren, bookingFor, compressImage, toast
+} from "../shared/firebase.js";
+
+const $ = (id) => document.getElementById(id);
+const f = $("f");
+let user = null, ville = [], pren = [], ultimi = [], unsubs = [];
+let editId = null, fotoNuova = null, prenManuale = false;
+
+f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
+
+setupAuth({
+  onLogin(u) {
+    user = u;
+    unsubs = [
+      listen(COLL.ville, (v) => { ville = v.map(normVilla).sort((a, b) => a.nome.localeCompare(b.nome, "it", { numeric: true })); renderVille(); }),
+      listen(COLL.prenotazioni, (p) => {
+        pren = p.map(normPren).filter((x) => x.villaId && x.checkIn && x.checkOut)
+          .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+        renderPrenSelect(); renderUltimi();
+      }),
+      listen("scontrini", (s) => { ultimi = s; renderUltimi(); }, orderBy("creatoIl", "desc"), limit(50)),
+    ];
+    resetForm();
+  },
+  onLogout() { unsubs.forEach((u) => u()); unsubs = []; },
+});
+
+/* ---------- Schede ---------- */
+document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+function showTab(t) {
+  document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+  ["nuovo", "ultimi"].forEach((x) => ($("tab-" + x).hidden = x !== t));
+  window.scrollTo(0, 0);
+}
+
+/* ---------- Ville (lette dall'app di gestione ville) ---------- */
+function renderVille() {
+  const cur = f.villaId.value;
+  f.villaId.innerHTML = `<option value="">— Scegli la villa —</option>` +
+    ville.map((v) => `<option value="${esc(v.id)}">${esc(v.nome)}</option>`).join("");
+  f.villaId.value = ville.some((v) => v.id === cur) ? cur : ville.length === 1 ? ville[0].id : "";
+  renderPrenSelect(); renderUltimi();
+}
+
+/* Menu prenotazioni nel modulo: si sceglie da solo in base a villa e data */
+function renderPrenSelect() {
+  const vid = f.villaId.value, cur = f.prenotazioneId.value;
+  const list = pren.filter((p) => p.villaId === vid);
+  f.prenotazioneId.innerHTML = `<option value="">— Nessuna: spesa generale della villa —</option>` +
+    list.slice().reverse().map((p) => `<option value="${p.id}">${esc(labelPren(p))}</option>`).join("");
+  f.prenotazioneId.disabled = !vid;
+  if (prenManuale && list.some((p) => p.id === cur)) f.prenotazioneId.value = cur;
+  autoPren();
+}
+function autoPren() {
+  const p = bookingFor(pren, f.villaId.value, f.data.value);
+  if (!prenManuale) f.prenotazioneId.value = p ? p.id : "";
+  $("pren-hint").textContent = prenManuale ? "" :
+    p ? "Scelta in automatico: prenotazione in corso nella data dello scontrino." :
+    f.villaId.value && f.data.value ? "Nessuna prenotazione in corso in quella data." : "";
+}
+f.villaId.onchange = () => { prenManuale = false; renderPrenSelect(); };
+f.data.onchange = () => { prenManuale = false; autoPren(); };
+f.prenotazioneId.onchange = () => { prenManuale = true; autoPren(); };
+
+/* ---------- Foto ---------- */
+async function onFile(e) {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    fotoNuova = await compressImage(file);
+    showPreview(fotoNuova);
+  } catch { toast("Non riesco a leggere questa foto"); }
+}
+$("cam").onchange = onFile;
+$("gal").onchange = onFile;
+function showPreview(src) {
+  $("preview").hidden = !src;
+  $("photo-empty").hidden = !!src;
+  if (src) $("preview").src = src; else $("preview").removeAttribute("src");
+}
+
+/* ---------- Salvataggio ---------- */
+f.onsubmit = async (e) => {
+  e.preventDefault();
+  const importo = parseImporto(f.importo.value);
+  if (!(importo > 0)) return toast("Importo non valido");
+  if (!editId && !fotoNuova && !confirm("Salvare lo scontrino senza foto?")) return;
+
+  const pSel = pren.find((p) => p.id === f.prenotazioneId.value);
+  const dati = {
+    villaId: f.villaId.value, prenotazioneId: pSel ? pSel.id : null, prenotazione: fotoPren(pSel), data: f.data.value,
+    importo, categoria: f.categoria.value, motivo: f.motivo.value.trim(),
+  };
+  const ref = editId ? doc(db, "scontrini", editId) : doc(collection(db, "scontrini"));
+  const b = writeBatch(db);
+  if (editId) b.update(ref, { ...dati, ...(fotoNuova ? { hasFoto: true } : {}), modificatoDa: user.email, modificatoIl: serverTimestamp() });
+  else b.set(ref, { ...dati, hasFoto: !!fotoNuova, creatoDa: user.email, creatoIl: serverTimestamp() });
+  if (fotoNuova) b.set(doc(db, "scontrini_foto", ref.id), { img: fotoNuova });
+
+  const btn = f.querySelector("[type=submit]");
+  btn.disabled = true;
+  const invio = b.commit();
+  const esito = await Promise.race([
+    invio.then(() => "ok"),
+    new Promise((r) => setTimeout(() => r("offline"), 5000)),
+  ]).catch((x) => x);
+  btn.disabled = false;
+  if (esito instanceof Error) return toast("Errore nel salvataggio: " + esito.message);
+  if (esito === "offline") {
+    toast("Salvato sul dispositivo: sarà inviato appena torna la connessione");
+    invio.catch((x) => toast("Invio non riuscito: " + x.message));
+  } else toast(editId ? "Scontrino aggiornato" : "Scontrino salvato");
+  const eraModifica = !!editId;
+  resetForm();
+  if (eraModifica) showTab("ultimi");
+};
+
+function resetForm() {
+  const villa = f.villaId.value;
+  editId = null; fotoNuova = null; prenManuale = false;
+  f.reset();
+  f.villaId.value = villa; // resta selezionata l'ultima villa usata
+  f.data.value = oggi();
+  showPreview(null);
+  $("f-title").textContent = "Nuovo scontrino";
+  $("annulla").hidden = $("elimina").hidden = true;
+  renderPrenSelect();
+}
+$("annulla").onclick = () => { resetForm(); showTab("ultimi"); };
+$("elimina").onclick = () => {
+  if (!editId || !confirm("Eliminare definitivamente questo scontrino?")) return;
+  const b = writeBatch(db);
+  b.delete(doc(db, "scontrini", editId));
+  b.delete(doc(db, "scontrini_foto", editId));
+  b.commit().catch((x) => toast("Errore: " + x.message));
+  toast("Scontrino eliminato");
+  resetForm();
+  showTab("ultimi");
+};
+
+/* ---------- Ultimi inseriti ---------- */
+function renderUltimi() {
+  $("lista").innerHTML = ultimi.length ? ultimi.map((s) => {
+    const v = ville.find((x) => x.id === s.villaId);
+    const p = trovaPren(s, pren);
+    return `<button type="button" class="item" data-s="${s.id}">
+      <div class="item-main"><strong>${esc(v?.nome || "Villa non trovata")}</strong>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)} · ${p ? esc(p.ospite) : "spesa generale"}</span>
+        <span class="clip">${esc(s.motivo)}</span></div>
+      <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
+    </button>`;
+  }).join("") : `<p class="muted center">Ancora nessuno scontrino.</p>`;
+}
+$("lista").onclick = async (e) => {
+  const b = e.target.closest("[data-s]");
+  const s = b && ultimi.find((x) => x.id === b.dataset.s);
+  if (!s) return;
+  editId = s.id; fotoNuova = null; prenManuale = true;
+  f.villaId.value = s.villaId;
+  f.data.value = s.data;
+  f.importo.value = String(s.importo).replace(".", ",");
+  f.categoria.value = s.categoria;
+  f.motivo.value = s.motivo;
+  renderPrenSelect();
+  const pTrov = trovaPren(s, pren);
+  f.prenotazioneId.value = pTrov && !pTrov.nonInCalendario ? pTrov.id : "";
+  if (pTrov?.nonInCalendario) document.getElementById("pren-hint").textContent =
+    `La prenotazione originale (${pTrov.ospite}) non è più in calendario: scegline una o lascia "spesa generale".`;
+  $("f-title").textContent = "Modifica scontrino";
+  $("annulla").hidden = $("elimina").hidden = false;
+  showPreview(null);
+  showTab("nuovo");
+  if (s.hasFoto) {
+    const d = await getDoc(doc(db, "scontrini_foto", s.id));
+    if (editId === s.id && d.exists()) showPreview(d.data().img);
+  }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+rules_version = '2';
+// Regole per TUTTE le app del progetto (gestione ville + scontrini).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autorizzato() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'freeze.tacticalseals@gmail.com',
+          'vvmilla@gmail.com'
+        ];
+    }
+    match /villas/{id}   { allow read, write: if autorizzato(); }
+    match /bookings/{id} { allow read, write: if autorizzato(); }
+    match /meta/{id}     { allow read, write: if autorizzato(); }
+    // App scontrini
+    match /scontrini/{id}      { allow read, write: if autorizzato(); }
+    match /scontrini_foto/{id} { allow read, write: if autorizzato(); }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

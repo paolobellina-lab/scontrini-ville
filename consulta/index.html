@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spese Ville</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2f6b6b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spese Ville">
+<link rel="apple-touch-icon" href="../shared/icona-consulta-512.png">
+<link rel="icon" href="../shared/icona-consulta-192.png">
+<link rel="stylesheet" href="../shared/style.css">
+<style>.topbar .dot { background: var(--teal); }</style>
+</head>
+<body>
+<div id="config-warning" class="banner" hidden>Manca la configurazione di Firebase: compila il file <b>firebase-config.js</b> (vedi LEGGIMI).</div>
+
+<section id="login" class="login" hidden>
+  <form class="card">
+    <h1>Spese Ville</h1>
+    <p class="muted" style="margin:4px 0 0">Consultazione scontrini · accedi con il tuo account</p>
+    <label>Email<input name="email" type="email" autocomplete="username" required></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit">Entra</button>
+    <p class="err"></p>
+  </form>
+</section>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Spese per prenotazione</h1></div>
+    <button class="link" data-logout>Esci</button>
+  </header>
+  <main>
+    <div class="card filters">
+      <label>Villa<select id="fv"></select></label>
+      <label>Periodo
+        <select id="fp">
+          <option value="tutto">Tutto</option>
+          <option value="mese">Questo mese</option>
+          <option value="3m">Ultimi 3 mesi</option>
+          <option value="anno" selected>Quest'anno</option>
+          <option value="annoprec">Anno scorso</option>
+          <option value="custom">Scegli date…</option>
+        </select>
+      </label>
+      <label id="l-da" hidden>Dal<input type="date" id="fda"></label>
+      <label id="l-a" hidden>Al<input type="date" id="fa"></label>
+      <label class="wide">Cerca<input id="fq" type="search" placeholder="Motivo, categoria o ospite"></label>
+      <div class="wide row no-print">
+        <button class="btn" type="button" id="espandi">Espandi tutto</button>
+        <button class="btn" type="button" id="csv">Esporta per Excel</button>
+        <button class="btn" type="button" id="stampa">Stampa</button>
+      </div>
+    </div>
+
+    <div class="card summary">
+      <div><strong id="s-tot">€ 0,00</strong><span>Totale spese</span></div>
+      <div><strong id="s-n">0</strong><span>Scontrini</span></div>
+      <div><strong id="s-p">0</strong><span>Prenotazioni</span></div>
+    </div>
+
+    <div id="out"></div>
+  </main>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <div><strong id="dlg-title"></strong><div class="muted" id="dlg-sub" style="font-size:.85rem"></div></div>
+    <div class="row">
+      <a class="btn" id="dlg-down" download>Scarica</a>
+      <button class="btn" type="button" id="dlg-close">Chiudi</button>
+    </div>
+  </div>
+  <div class="dlg-body"><img id="dlg-img" alt="Foto dello scontrino"><p id="dlg-msg" class="muted"></p></div>
+</dialog>
+<div id="toast" class="toast" hidden></div>
+
+<script type="module">
+import {
+  db, setupAuth, listen, doc, getDoc, COLL, normVilla, normPren, trovaPren,
+  euro, dataIt, dataBreve, isoLocale, esc, toast
+} from "../shared/firebase.js";
+
+const $ = (id) => document.getElementById(id);
+let ville = [], pren = [], scontrini = [], unsubs = [], ordinati = [];
+const aperti = new Set();   // gruppi aperti, mantenuti tra un aggiornamento e l'altro
+
+setupAuth({
+  onLogin() {
+    unsubs = [
+      listen(COLL.ville, (v) => { ville = v.map(normVilla).sort((a, b) => a.nome.localeCompare(b.nome, "it", { numeric: true })); renderFiltroVille(); render(); }),
+      listen(COLL.prenotazioni, (p) => { pren = p.map(normPren).filter((x) => x.villaId && x.checkIn); render(); }),
+      listen("scontrini", (s) => { scontrini = s; render(); }),
+    ];
+  },
+  onLogout() { unsubs.forEach((u) => u()); unsubs = []; },
+});
+
+/* ---------- Filtri ---------- */
+function renderFiltroVille() {
+  const cur = $("fv").value;
+  $("fv").innerHTML = `<option value="">Tutte le ville</option>` +
+    ville.map((v) => `<option value="${v.id}">${esc(v.nome)}</option>`).join("");
+  $("fv").value = ville.some((v) => v.id === cur) ? cur : "";
+}
+["fv", "fda", "fa"].forEach((id) => ($(id).onchange = render));
+$("fq").oninput = render;
+$("fp").onchange = () => {
+  const c = $("fp").value === "custom";
+  $("l-da").hidden = $("l-a").hidden = !c;
+  render();
+};
+function periodo() {
+  const t = new Date(), y = t.getFullYear();
+  switch ($("fp").value) {
+    case "mese": return [isoLocale(new Date(y, t.getMonth(), 1)), null];
+    case "3m": return [isoLocale(new Date(y, t.getMonth() - 2, 1)), null];
+    case "anno": return [`${y}-01-01`, null];
+    case "annoprec": return [`${y - 1}-01-01`, `${y - 1}-12-31`];
+    case "custom": return [$("fda").value || null, $("fa").value || null];
+    default: return [null, null];
+  }
+}
+
+/* ---------- Raggruppamento: villa → prenotazione → scontrini ---------- */
+function render() {
+  const [da, a] = periodo();
+  const q = $("fq").value.trim().toLowerCase();
+  const vf = $("fv").value;
+  const prenById = new Map();
+  const prenDi = (s) => { const p = trovaPren(s, pren); if (p) prenById.set(p.id, p); return p; };
+
+  const righe = scontrini.filter((s) => {
+    if (vf && s.villaId !== vf) return false;
+    if (da && s.data < da) return false;
+    if (a && s.data > a) return false;
+    if (q) {
+      const p = prenDi(s);
+      const testo = `${s.motivo} ${s.categoria} ${p?.ospite || ""}`.toLowerCase();
+      if (!testo.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // villaId -> Map(prenId|"" -> [scontrini])
+  const perVilla = new Map();
+  for (const s of righe) {
+    const pid = prenDi(s)?.id || "";
+    if (!perVilla.has(s.villaId)) perVilla.set(s.villaId, new Map());
+    const g = perVilla.get(s.villaId);
+    if (!g.has(pid)) g.set(pid, []);
+    g.get(pid).push(s);
+  }
+
+  const nomeVilla = (id) => ville.find((v) => v.id === id)?.nome || "Villa " + id;
+  const villeOrd = [...perVilla.keys()].sort((x, y) => nomeVilla(x).localeCompare(nomeVilla(y), "it"));
+  const somma = (l) => l.reduce((t, s) => t + (Number(s.importo) || 0), 0);
+  const unSolo = !!vf;
+
+  ordinati = [];
+  let html = "", nPren = 0;
+  for (const vid of villeOrd) {
+    const gruppi = perVilla.get(vid);
+    const pids = [...gruppi.keys()].filter(Boolean)
+      .sort((x, y) => prenById.get(y).checkIn.localeCompare(prenById.get(x).checkIn)); // più recenti in alto
+    if (gruppi.has("")) pids.push("");
+    nPren += pids.filter(Boolean).length;
+    const totVilla = somma([...gruppi.values()].flat());
+
+    html += `<div class="villa-head"><h2>${esc(nomeVilla(vid))}</h2><span class="amount">${euro(totVilla)}</span></div>`;
+    for (const pid of pids) {
+      const lista = gruppi.get(pid).sort((x, y) => x.data.localeCompare(y.data));
+      const p = prenById.get(pid);
+      const key = vid + "|" + pid;
+      const open = aperti.has(key) || (unSolo && pids.length <= 3);
+      const cats = {};
+      lista.forEach((s) => (cats[s.categoria] = (cats[s.categoria] || 0) + Number(s.importo)));
+      lista.forEach((s) => ordinati.push({ s, villa: nomeVilla(vid), p }));
+
+      html += `<details class="card group ${p ? "" : "generale"}" data-key="${esc(key)}" ${open ? "open" : ""}>
+        <summary>
+          <div class="item-main">
+            <strong>${p ? esc(p.ospite) : "Spese generali della villa"}</strong>
+            <span class="muted">${p ? `${dataBreve(p.checkIn)} → ${dataBreve(p.checkOut)}${p.nonInCalendario ? " (non più in calendario)" : ""} · ` : "Non legate a una prenotazione · "}${lista.length} ${lista.length === 1 ? "scontrino" : "scontrini"}</span>
+          </div>
+          <span class="amount">${euro(somma(lista))}</span>
+        </summary>
+        <div class="group-body">
+          <div class="cats">${Object.entries(cats).sort((x, y) => y[1] - x[1])
+            .map(([c, t]) => `<span>${esc(c)} ${euro(t)}</span>`).join("")}</div>
+          ${lista.map((s) => `<div class="rc">
+            <span class="d">${dataIt(s.data)}</span>
+            <div class="m">${esc(s.motivo)}<small>${esc(s.categoria)} · ${esc(s.creatoDa || "")}</small></div>
+            <span class="amount">${euro(s.importo)}</span>
+            <button class="thumb" type="button" data-foto="${s.id}" ${s.hasFoto ? "" : "disabled"} title="${s.hasFoto ? "Vedi foto" : "Nessuna foto"}" aria-label="Vedi foto">${s.hasFoto ? "🧾" : "–"}</button>
+          </div>`).join("")}
+        </div>
+      </details>`;
+    }
+  }
+
+  $("out").innerHTML = html || `<p class="muted center" style="padding:30px 0">Nessuno scontrino per questi filtri.</p>`;
+  $("s-tot").textContent = euro(somma(righe));
+  $("s-n").textContent = righe.length;
+  $("s-p").textContent = nPren;
+}
+
+$("out").addEventListener("toggle", (e) => {
+  const k = e.target.dataset?.key;
+  if (k) e.target.open ? aperti.add(k) : aperti.delete(k);
+}, true);
+$("espandi").onclick = () => {
+  const tutti = [...document.querySelectorAll("details.group")];
+  const apri = tutti.some((d) => !d.open);
+  tutti.forEach((d) => (d.open = apri));
+  $("espandi").textContent = apri ? "Comprimi tutto" : "Espandi tutto";
+};
+$("stampa").onclick = () => {
+  document.querySelectorAll("details.group").forEach((d) => (d.open = true));
+  setTimeout(() => window.print(), 50);
+};
+
+/* ---------- Foto ---------- */
+$("out").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-foto]");
+  if (!b) return;
+  const s = scontrini.find((x) => x.id === b.dataset.foto);
+  const p = trovaPren(s, pren);
+  $("dlg-title").textContent = `${euro(s.importo)} · ${dataIt(s.data)}`;
+  $("dlg-sub").textContent = `${ville.find((v) => v.id === s.villaId)?.nome || ""} · ${p ? p.ospite : "spesa generale"} · ${s.motivo}`;
+  $("dlg-img").hidden = true;
+  $("dlg-down").hidden = true;
+  $("dlg-msg").textContent = "Caricamento…";
+  $("dlg").showModal();
+  try {
+    const d = await getDoc(doc(db, "scontrini_foto", s.id));
+    if (!d.exists()) { $("dlg-msg").textContent = "Foto non trovata."; return; }
+    $("dlg-img").src = d.data().img;
+    $("dlg-img").hidden = false;
+    $("dlg-msg").textContent = "";
+    $("dlg-down").href = d.data().img;
+    $("dlg-down").download = `scontrino_${s.data}_${s.id.slice(0, 6)}.jpg`;
+    $("dlg-down").hidden = false;
+  } catch (x) { $("dlg-msg").textContent = "Errore: " + x.message; }
+});
+$("dlg-close").onclick = () => $("dlg").close();
+$("dlg").onclick = (e) => { if (e.target === $("dlg")) $("dlg").close(); };
+
+/* ---------- Esporta CSV (si apre con Excel) ---------- */
+$("csv").onclick = () => {
+  if (!ordinati.length) return toast("Niente da esportare");
+  const cella = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const righe = [["Villa", "Prenotazione", "Check-in", "Check-out", "Data scontrino", "Categoria", "Motivo", "Importo", "Inserito da"]];
+  for (const { s, villa, p } of ordinati) righe.push([
+    villa, p ? p.ospite : "Spese generali", p ? dataIt(p.checkIn) : "", p ? dataIt(p.checkOut) : "",
+    dataIt(s.data), s.categoria, s.motivo, Number(s.importo).toFixed(2).replace(".", ","), s.creatoDa,
+  ]);
+  const testo = "﻿" + righe.map((r) => r.map(cella).join(";")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([testo], { type: "text/csv;charset=utf-8" }));
+  a.download = `spese-ville_${isoLocale(new Date())}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+</script>
+</body>
+</html>
