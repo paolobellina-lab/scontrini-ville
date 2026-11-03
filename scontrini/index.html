@@ -13,12 +13,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../shared/style.css">
+<script src="../shared/tema.js"></script>
 <style>@media (max-width: 560px) { #tab-inseriti .filters { grid-template-columns: 1fr; } }</style>
 </head>
 <body>
 <div id="config-warning" class="banner" hidden>Manca la configurazione di Firebase: compila il file <b>firebase-config.js</b> (vedi LEGGIMI).</div>
 
 <section id="login" class="login" hidden>
+  <button class="theme-btn" type="button" data-tema aria-label="Cambia tema"></button>
   <form class="card">
     <h1>Scontrini Ville</h1>
     <p class="muted" style="margin:4px 0 0">Accedi con il tuo account Google</p>
@@ -30,7 +32,10 @@
 <div id="app" hidden>
   <header class="topbar">
     <div class="brand"><span class="dot"></span><h1>Scontrini</h1></div>
-    <button class="link" data-logout>Esci</button>
+    <div class="actions">
+      <button class="theme-btn" type="button" data-tema aria-label="Cambia tema"></button>
+      <button class="link" data-logout>Esci</button>
+    </div>
   </header>
   <nav class="tabs">
     <button data-tab="nuovo" class="active">Nuovo</button>
