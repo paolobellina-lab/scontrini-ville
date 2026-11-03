@@ -14,7 +14,7 @@
     if (t === "auto") r.removeAttribute("data-theme"); else r.setAttribute("data-theme", t);
     var scuro = t === "dark" || (t === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     var m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.setAttribute("content", scuro ? "#171513" : "#faf4e6");
+    if (m) m.setAttribute("content", scuro ? "#222120" : "#ffffff");
     document.querySelectorAll("[data-tema]").forEach(function (b) {
       b.innerHTML = ICONE[t] + "<span>" + NOMI[t] + "</span>";
       b.title = "Tema: " + NOMI[t] + " (tocca per cambiare)";

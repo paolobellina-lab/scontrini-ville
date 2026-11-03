@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Scontrini Ville</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#b5532f">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Scontrini">
 <link rel="apple-touch-icon" href="../shared/icona-scontrini-512.png">
 <link rel="icon" href="../shared/icona-scontrini-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../shared/style.css">
 <script src="../shared/tema.js"></script>
 <style>@media (max-width: 560px) { #tab-inseriti .filters { grid-template-columns: 1fr; } }
@@ -23,7 +23,8 @@
 <section id="login" class="login" hidden>
   <button class="theme-btn" type="button" data-tema aria-label="Cambia tema"></button>
   <form class="card">
-    <h1>Scontrini Ville</h1>
+    <span class="eyebrow">Ville · Gestione spese</span>
+    <h1>Scontrini</h1>
     <p class="muted" style="margin:4px 0 0">Accedi con il tuo account Google</p>
     <button class="btn primary" type="button" id="google-login">Accedi con Google</button>
     <p class="err"></p>
@@ -32,7 +33,7 @@
 
 <div id="app" hidden>
   <header class="topbar">
-    <div class="brand"><span class="dot"></span><h1>Scontrini</h1></div>
+    <div class="brand"><div><span class="eyebrow">Ville · Gestione spese</span><h1>Scontrini</h1></div></div>
     <div class="actions">
       <button class="theme-btn" type="button" data-tema aria-label="Cambia tema"></button>
       <button class="link" data-logout>Esci</button>

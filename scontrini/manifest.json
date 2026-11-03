@@ -5,8 +5,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#faf4e6",
-  "theme_color": "#b5532f",
+  "background_color": "#f4f2ed",
+  "theme_color": "#ffffff",
   "icons": [
     { "src": "../shared/icona-scontrini-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "../shared/icona-scontrini-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
