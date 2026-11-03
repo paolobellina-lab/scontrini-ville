@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot,
+  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocFromServer, getDocs, onSnapshot,
   query, where, orderBy, limit, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "../firebase-config.js";
@@ -87,10 +87,62 @@ export function setupAuth({ onLogin, onLogout }) {
   document.querySelectorAll("[data-logout]").forEach((b) =>
     b.addEventListener("click", () => signOut(auth)));
 
-  onAuthStateChanged(auth, (user) => {
-    login.hidden = !!user;
-    appEl.hidden = !user;
-    if (user) onLogin(user); else onLogout?.();
+  /* Prima di mostrare l'app verifico che l'account sia abilitato:
+     le regole Firestore negano la lettura agli account non autorizzati. */
+  const VERIFICATI = "account-verificati-app-ville";
+  const leggiVerificati = () => { try { return JSON.parse(localStorage.getItem(VERIFICATI) || "[]"); } catch { return []; } };
+  const segnaVerificato = (email) => {
+    try { localStorage.setItem(VERIFICATI, JSON.stringify([...new Set([...leggiVerificati(), email])])); } catch {}
+  };
+  const togliVerificato = (email) => {
+    try { localStorage.setItem(VERIFICATI, JSON.stringify(leggiVerificati().filter((e) => e !== email))); } catch {}
+  };
+  let attivo = false;
+
+  onAuthStateChanged(auth, async (user) => {
+    appEl.hidden = true;
+    login.hidden = false;
+    if (attivo) { attivo = false; onLogout?.(); }
+    if (!user) { gBtn.hidden = false; return; }
+
+    const email = (user.email || "").toLowerCase();
+    gBtn.hidden = true;
+    err.className = "muted";
+    err.textContent = "Verifica dell'accesso in corso…";
+    let ok = false;
+    try {
+      await getDocFromServer(doc(db, "meta", "assegnazioni"));
+      ok = true;
+      segnaVerificato(email);
+    } catch (x) {
+      if (x.code === "permission-denied") {
+        togliVerificato(email);
+      } else {
+        // Nessuna connessione: entra solo chi su questo dispositivo è già stato verificato.
+        ok = leggiVerificati().includes(email);
+        if (!ok) {
+          err.className = "err";
+          err.textContent = "Non riesco a verificare l'accesso: controlla la connessione e riprova.";
+          gBtn.hidden = false;
+          await signOut(auth);
+          return;
+        }
+      }
+    }
+    if (auth.currentUser?.uid !== user.uid) return; // nel frattempo è cambiato utente
+    if (!ok) {
+      await signOut(auth);
+      err.className = "err";
+      err.textContent = `L'account ${user.email} non è abilitato ad accedere a questa app.`;
+      gBtn.hidden = false;
+      return;
+    }
+    err.className = "err";
+    err.textContent = "";
+    login.hidden = true;
+    appEl.hidden = false;
+    attivo = true;
+    onLogin(user);
   });
 }
 
