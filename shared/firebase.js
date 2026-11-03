@@ -6,8 +6,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocFromServer, getDocs, onSnapshot,
-  query, where, orderBy, limit, serverTimestamp, writeBatch
+  collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocFromServer, getDocFromCache, getDocs, onSnapshot,
+  query, where, orderBy, limit, serverTimestamp, writeBatch, terminate, clearIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "../firebase-config.js";
 
@@ -87,8 +87,12 @@ export function setupAuth({ onLogin, onLogout }) {
   document.querySelectorAll("[data-logout]").forEach((b) =>
     b.addEventListener("click", () => signOut(auth)));
 
-  /* Prima di mostrare l'app verifico che l'account sia abilitato:
-     le regole Firestore negano la lettura agli account non autorizzati. */
+  /* Prima di mostrare l'app verifico che l'account sia abilitato.
+     1) Le regole Firestore negano la lettura a chi non è amministratore né in meta/accessi.emails.
+     2) Chi è in meta/accessi.utenti deve avere "scontrini" nel campo app (vale anche per Spese Ville).
+        Chi non è in elenco è un amministratore ed entra sempre. meta/accessi qui si legge soltanto. */
+  const APP = "scontrini";
+  const MSG = "messaggio-accesso-app-ville";
   const VERIFICATI = "account-verificati-app-ville";
   const leggiVerificati = () => { try { return JSON.parse(localStorage.getItem(VERIFICATI) || "[]"); } catch { return []; } };
   const segnaVerificato = (email) => {
@@ -97,11 +101,50 @@ export function setupAuth({ onLogin, onLogout }) {
   const togliVerificato = (email) => {
     try { localStorage.setItem(VERIFICATI, JSON.stringify(leggiVerificati().filter((e) => e !== email))); } catch {}
   };
-  let attivo = false;
+  const abilitato = (accessi, email) => {
+    const u = (accessi?.utenti || []).find((x) => String(x.email || "").toLowerCase() === email);
+    return !u || (Array.isArray(u.app) && u.app.includes(APP));
+  };
+  const mostraErrore = (testo) => { err.className = "err"; err.textContent = testo; gBtn.hidden = false; };
 
-  onAuthStateChanged(auth, async (user) => {
+  // Messaggio lasciato prima del ricaricamento della pagina (dopo un'uscita forzata)
+  try {
+    const m = sessionStorage.getItem(MSG);
+    if (m) { sessionStorage.removeItem(MSG); err.className = "err"; err.textContent = m; }
+  } catch {}
+
+  let attivo = false, stopAccessi = null, espulsione = false;
+
+  /* Fa uscire l'utente, cancella i dati salvati sul dispositivo e ricarica la pagina. */
+  async function espelli(user, testo) {
+    if (espulsione) return;
+    espulsione = true;
     appEl.hidden = true;
     login.hidden = false;
+    gBtn.hidden = true;
+    err.className = "muted";
+    err.textContent = "Uscita in corso…";
+    togliVerificato((user?.email || "").toLowerCase());
+    try { sessionStorage.setItem(MSG, testo); } catch {}
+    try { stopAccessi?.(); } catch {}
+    try { await signOut(auth); } catch {}
+    try { await terminate(db); } catch {}
+    try { await clearIndexedDbPersistence(db); } catch {
+      // un'altra scheda tiene aperto il database: provo a cancellarlo direttamente
+      try {
+        const dbs = (await indexedDB.databases?.()) || [];
+        dbs.filter((d) => d.name && d.name.startsWith("firestore/")).forEach((d) => indexedDB.deleteDatabase(d.name));
+      } catch {}
+    }
+    location.reload();
+  }
+  const testoNonAbilitato = (user) => `L'account ${user.email} non è abilitato a questa app.`;
+
+  onAuthStateChanged(auth, async (user) => {
+    if (espulsione) return;
+    appEl.hidden = true;
+    login.hidden = false;
+    stopAccessi?.(); stopAccessi = null;
     if (attivo) { attivo = false; onLogout?.(); }
     if (!user) { gBtn.hidden = false; return; }
 
@@ -109,42 +152,38 @@ export function setupAuth({ onLogin, onLogout }) {
     gBtn.hidden = true;
     err.className = "muted";
     err.textContent = "Verifica dell'accesso in corso…";
-    let ok = false;
+    let accessi = null;
     try {
-      await getDocFromServer(doc(db, "meta", "assegnazioni"));
-      ok = true;
-      segnaVerificato(email);
+      const d = await getDocFromServer(doc(db, "meta", "accessi"));
+      accessi = d.exists() ? d.data() : null;
     } catch (x) {
-      if (x.code === "permission-denied") {
-        togliVerificato(email);
-      } else {
-        // Nessuna connessione: entra solo chi su questo dispositivo è già stato verificato.
-        ok = leggiVerificati().includes(email);
-        if (!ok) {
-          err.className = "err";
-          err.textContent = "Non riesco a verificare l'accesso: controlla la connessione e riprova.";
-          gBtn.hidden = false;
-          await signOut(auth);
-          return;
-        }
+      if (x.code === "permission-denied") return espelli(user, testoNonAbilitato(user));
+      // Nessuna connessione: entra solo chi su questo dispositivo è già stato verificato
+      if (!leggiVerificati().includes(email)) {
+        await signOut(auth);
+        return mostraErrore("Non riesco a verificare l'accesso: controlla la connessione e riprova.");
       }
+      try { const d = await getDocFromCache(doc(db, "meta", "accessi")); accessi = d.exists() ? d.data() : null; } catch {}
     }
     if (auth.currentUser?.uid !== user.uid) return; // nel frattempo è cambiato utente
-    if (!ok) {
-      await signOut(auth);
-      err.className = "err";
-      err.textContent = `L'account ${user.email} non è abilitato ad accedere a questa app.`;
-      gBtn.hidden = false;
-      return;
-    }
+    if (!abilitato(accessi, email)) return espelli(user, testoNonAbilitato(user));
+
+    segnaVerificato(email);
     err.className = "err";
     err.textContent = "";
     login.hidden = true;
     appEl.hidden = false;
     attivo = true;
+
+    // Controllo continuo: se l'abilitazione viene tolta con l'app aperta, l'utente esce
+    stopAccessi = onSnapshot(doc(db, "meta", "accessi"),
+      (d) => { if (!abilitato(d.exists() ? d.data() : null, email)) espelli(user, testoNonAbilitato(user)); },
+      (x) => { if (x.code === "permission-denied") espelli(user, testoNonAbilitato(user)); });
+
     onLogin(user);
   });
 }
+
 
 /* Ascolta una collezione in tempo reale e restituisce un array di oggetti {id, ...campi}. */
 export function listen(nome, cb, ...vincoli) {

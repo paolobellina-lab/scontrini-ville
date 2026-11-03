@@ -21,6 +21,16 @@ Ogni scontrino conserva una copia di cliente e date della prenotazione. Così, s
 viene modificata o ricreata con un altro ID, lo scontrino resta comunque nel gruppo giusto.
 Le foto stanno in Firestore e non in Storage, così basta il piano gratuito.
 
+## Chi può entrare
+
+L'elenco degli account si gestisce in Summer Database (Impostazioni → Account autorizzati, documento `meta/accessi`).
+Le app Scontrini e Spese Ville lo leggono soltanto:
+- account **non in elenco** ma fatto entrare dalle regole → amministratore, entra sempre;
+- account in elenco **con** la casella `scontrini` → entra;
+- account in elenco **senza** `scontrini`, o bloccato dalle regole → esce subito con il messaggio
+  "L'account … non è abilitato a questa app" e i dati salvati sul dispositivo vengono cancellati;
+- il controllo continua mentre l'app è aperta: se la casella viene tolta, l'utente esce subito.
+
 ## Ville visibili per account
 
 L'app Scontrini legge (senza mai scriverlo) il documento `meta/assegnazioni`, gestito da Summer Database:
