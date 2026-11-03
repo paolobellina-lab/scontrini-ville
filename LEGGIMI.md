@@ -21,6 +21,16 @@ Ogni scontrino conserva una copia di cliente e date della prenotazione. Così, s
 viene modificata o ricreata con un altro ID, lo scontrino resta comunque nel gruppo giusto.
 Le foto stanno in Firestore e non in Storage, così basta il piano gratuito.
 
+## Ville visibili per account
+
+L'app Scontrini legge (senza mai scriverlo) il documento `meta/assegnazioni`, gestito da Summer Database:
+- account **non presente** nell'elenco → vede tutte le ville e tutti gli scontrini;
+- account presente → vede solo le ville intere assegnate e le singole prenotazioni assegnate
+  (più le spese generali di quelle ville);
+- account con nessuna villa e nessuna prenotazione → messaggio "Nessuna villa assegnata".
+È un filtro per fare ordine, non una protezione dei dati: le regole Firestore restano uguali.
+Le modifiche agli scontrini usano sempre `update`, così l'array `storico` scritto da Summer Database non si perde.
+
 ## Configurazione di Firebase
 
 1. **Regole**: in Firestore → Regole incolla il contenuto di `firestore.rules`. Contiene già anche le regole

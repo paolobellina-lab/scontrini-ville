@@ -105,6 +105,13 @@ export function listen(nome, cb, ...vincoli) {
   );
 }
 
+/* Ascolta un singolo documento in tempo reale (null se non esiste o non leggibile). */
+export function listenDoc(col, id, cb) {
+  return onSnapshot(doc(db, col, id),
+    (d) => cb(d.exists() ? d.data() : null),
+    (e) => { console.warn("Lettura " + col + "/" + id + ":", e.message); cb(null); });
+}
+
 /* ---------- Utilità ---------- */
 const fmtEuro = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
 export const euro = (n) => fmtEuro.format(Number(n) || 0);

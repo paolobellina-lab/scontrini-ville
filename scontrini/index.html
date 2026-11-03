@@ -14,7 +14,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../shared/style.css">
 <script src="../shared/tema.js"></script>
-<style>@media (max-width: 560px) { #tab-inseriti .filters { grid-template-columns: 1fr; } }</style>
+<style>@media (max-width: 560px) { #tab-inseriti .filters { grid-template-columns: 1fr; } }
+#main.bloccato > section { display: none !important; }</style>
 </head>
 <body>
 <div id="config-warning" class="banner" hidden>Manca la configurazione di Firebase: compila il file <b>firebase-config.js</b> (vedi LEGGIMI).</div>
@@ -42,7 +43,12 @@
     <button data-tab="inseriti">Inseriti</button>
   </nav>
 
-  <main>
+  <main id="main">
+    <p id="assegn-info" class="muted" style="margin:0 2px 10px;font-size:.85rem" hidden></p>
+    <div id="no-assegn" class="card center" hidden>
+      <h2>Nessuna villa assegnata</h2>
+      <p class="muted" style="margin:8px 0 0">Chiedi all'amministratore di assegnarti le ville su cui lavori.</p>
+    </div>
     <!-- Nuovo / modifica scontrino -->
     <section id="tab-nuovo">
       <form id="f" class="card stack" autocomplete="off">
@@ -95,7 +101,7 @@
 
 <script type="module">
 import {
-  db, setupAuth, listen, collection, doc, getDoc, serverTimestamp, writeBatch,
+  db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
   CATEGORIE, COLL, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
@@ -103,6 +109,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const f = $("f");
 let user = null, ville = [], pren = [], tutti = [], unsubs = [];
+let assegnazioni = null, vis = null; // vis = null → l'account vede tutto
 let editId = null, fotoNuova = null, prenManuale = false;
 
 f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
@@ -111,17 +118,19 @@ setupAuth({
   onLogin(u) {
     user = u;
     unsubs = [
+      // Assegnazioni account → ville/prenotazioni, gestite da Summer Database (qui solo lettura)
+      listenDoc("meta", "assegnazioni", (d) => { assegnazioni = d; aggiornaVisibilita(); }),
       listen(COLL.ville, (v) => { ville = v.map(normVilla).sort((a, b) => a.nome.localeCompare(b.nome, "it", { numeric: true })); renderVille(); }),
       listen(COLL.prenotazioni, (p) => {
         pren = p.map(normPren).filter((x) => x.villaId && x.checkIn && x.checkOut)
           .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
-        renderPrenSelect(); renderLista();
+        aggiornaVisibilita();
       }),
       listen("scontrini", (s) => { tutti = s; renderLista(); }),
     ];
     resetForm();
   },
-  onLogout() { unsubs.forEach((u) => u()); unsubs = []; },
+  onLogout() { unsubs.forEach((u) => u()); unsubs = []; assegnazioni = null; vis = null; },
 });
 
 /* ---------- Schede ---------- */
@@ -132,19 +141,56 @@ function showTab(t) {
   window.scrollTo(0, 0);
 }
 
+/* ---------- Ville e prenotazioni visibili per questo account ---------- */
+function calcolaVisibilita() {
+  const email = (user?.email || "").toLowerCase();
+  const acc = (assegnazioni?.account || []).find((a) => String(a.email || "").toLowerCase() === email);
+  if (!acc) return null; // non assegnato → vede tutto
+  const villeIntere = new Set(acc.ville || []);
+  const prenAss = new Set(acc.prenotazioni || []);
+  const villeVis = new Set(villeIntere);
+  pren.forEach((p) => { if (prenAss.has(p.id)) villeVis.add(p.villaId); });
+  return { villeIntere, prenAss, villeVis, vuoto: !villeIntere.size && !prenAss.size };
+}
+const villaVisibile = (id) => !vis || vis.villeVis.has(id);
+const prenVisibile = (p) => !vis || vis.villeIntere.has(p.villaId) || vis.prenAss.has(p.id);
+function scontrinoVisibile(s) {
+  if (!vis) return true;
+  if (!vis.villeVis.has(s.villaId)) return false;
+  if (vis.villeIntere.has(s.villaId)) return true;
+  if (!s.prenotazioneId && !s.prenotazione) return true; // spesa generale di una villa visibile
+  const p = trovaPren(s, pren);
+  return (p && vis.prenAss.has(p.id)) || vis.prenAss.has(s.prenotazioneId);
+}
+function aggiornaVisibilita() {
+  vis = calcolaVisibilita();
+  const vuoto = !!vis?.vuoto;
+  $("no-assegn").hidden = !vuoto;
+  $("main").classList.toggle("bloccato", vuoto);
+  document.querySelector(".tabs").hidden = vuoto;
+  $("assegn-info").hidden = !vis || vuoto;
+  $("assegn-info").textContent = "Vedi solo le ville e le prenotazioni assegnate al tuo account.";
+  if (editId) { // lo scontrino in modifica non è più visibile → chiudo la modifica
+    const s = tutti.find((x) => x.id === editId);
+    if (s && !scontrinoVisibile(s)) { resetForm(); toast("Le tue assegnazioni sono cambiate"); }
+  }
+  renderVille();
+}
+
 /* ---------- Ville (lette dall'app di gestione ville) ---------- */
 function renderVille() {
   const cur = f.villaId.value;
+  const lista = ville.filter((v) => villaVisibile(v.id));
   f.villaId.innerHTML = `<option value="">— Scegli la villa —</option>` +
-    ville.map((v) => `<option value="${esc(v.id)}">${esc(v.nome)}</option>`).join("");
-  f.villaId.value = ville.some((v) => v.id === cur) ? cur : ville.length === 1 ? ville[0].id : "";
+    lista.map((v) => `<option value="${esc(v.id)}">${esc(v.nome)}</option>`).join("");
+  f.villaId.value = lista.some((v) => v.id === cur) ? cur : lista.length === 1 ? lista[0].id : "";
   renderPrenSelect(); renderLista();
 }
 
 /* Menu prenotazioni nel modulo: si sceglie da solo in base a villa e data */
 function renderPrenSelect() {
   const vid = f.villaId.value, cur = f.prenotazioneId.value;
-  const list = pren.filter((p) => p.villaId === vid);
+  const list = pren.filter((p) => p.villaId === vid && prenVisibile(p));
   f.prenotazioneId.innerHTML = `<option value="">— Nessuna: spesa generale della villa —</option>` +
     list.slice().reverse().map((p) => `<option value="${p.id}">${esc(labelPren(p))}</option>`).join("");
   f.prenotazioneId.disabled = !vid;
@@ -152,7 +198,7 @@ function renderPrenSelect() {
   autoPren();
 }
 function autoPren() {
-  const p = bookingFor(pren, f.villaId.value, f.data.value);
+  const p = bookingFor(pren.filter(prenVisibile), f.villaId.value, f.data.value);
   if (!prenManuale) f.prenotazioneId.value = p ? p.id : "";
   $("pren-hint").textContent = prenManuale ? "" :
     p ? "Scelta in automatico: prenotazione in corso nella data dello scontrino." :
@@ -243,7 +289,9 @@ $("elimina").onclick = () => {
 const GEN = "__generale";
 const chiavePren = (s) => trovaPren(s, pren)?.id || GEN;
 
+const visibili = () => tutti.filter(scontrinoVisibile);
 function renderFiltri() {
+  const tutti = visibili();
   const fv = $("fil-villa"), fp = $("fil-pren");
   const curV = fv.value, curP = fp.value;
   const conta = {};
@@ -275,6 +323,7 @@ $("fil-pren").onchange = () => renderLista();
 
 function renderLista() {
   renderFiltri();
+  const tutti = visibili();
   const vid = $("fil-villa").value, pid = $("fil-pren").value;
   const righe = tutti
     .filter((s) => (!vid || s.villaId === vid) && (!pid || chiavePren(s) === pid))
