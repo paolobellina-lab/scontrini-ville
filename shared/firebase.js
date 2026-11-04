@@ -1,7 +1,8 @@
 // Codice condiviso dalle due app: connessione a Firebase, login e funzioni di utilità.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged, signOut,
+  initializeAuth, indexedDBLocalPersistence, browserLocalPersistence, browserPopupRedirectResolver,
+  onAuthStateChanged, signOut,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
@@ -18,7 +19,11 @@ export {
 
 export const configurato = !String(firebaseConfig.apiKey).includes("INCOLLA_QUI");
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// Accesso ricordato sul dispositivo: si resta collegati finché non si preme "Esci".
+export const auth = initializeAuth(app, {
+  persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+  popupRedirectResolver: browserPopupRedirectResolver,
+});
 // Cache locale: l'app funziona anche senza rete e invia i dati appena torna la connessione.
 // Database "(default)", lo stesso dell'app di gestione ville.
 export const db = initializeFirestore(app, {
@@ -138,16 +143,29 @@ export function setupAuth({ onLogin, onLogout }) {
     }
     location.reload();
   }
+  // Pulsante "Riprova" (senza uscire dall'account) quando manca la connessione
+  const riprova = document.createElement("button");
+  riprova.type = "button"; riprova.className = "btn"; riprova.textContent = "Riprova"; riprova.hidden = true;
+  gBtn.after(riprova);
+  let utenteDaRiprovare = null;
+  const mostraRiprova = (user) => { utenteDaRiprovare = user; riprova.hidden = false; };
+  riprova.addEventListener("click", () => { riprova.hidden = true; if (utenteDaRiprovare) verifica(utenteDaRiprovare); });
+  window.addEventListener("online", () => { if (!riprova.hidden && utenteDaRiprovare) { riprova.hidden = true; verifica(utenteDaRiprovare); } });
+
   const testoNonAbilitato = (user) => `L'account ${user.email} non è abilitato a questa app.`;
 
-  onAuthStateChanged(auth, async (user) => {
+  onAuthStateChanged(auth, (user) => {
     if (espulsione) return;
     appEl.hidden = true;
     login.hidden = false;
+    riprova.hidden = true;
     stopAccessi?.(); stopAccessi = null;
     if (attivo) { attivo = false; onLogout?.(); }
     if (!user) { gBtn.hidden = false; return; }
+    verifica(user);
+  });
 
+  async function verifica(user) {
     const email = (user.email || "").toLowerCase();
     gBtn.hidden = true;
     err.className = "muted";
@@ -158,10 +176,13 @@ export function setupAuth({ onLogin, onLogout }) {
       accessi = d.exists() ? d.data() : null;
     } catch (x) {
       if (x.code === "permission-denied") return espelli(user, testoNonAbilitato(user));
-      // Nessuna connessione: entra solo chi su questo dispositivo è già stato verificato
+      // Nessuna connessione: entra solo chi su questo dispositivo è già stato verificato.
+      // Gli altri restano collegati (nessuna uscita) e possono riprovare.
       if (!leggiVerificati().includes(email)) {
-        await signOut(auth);
-        return mostraErrore("Non riesco a verificare l'accesso: controlla la connessione e riprova.");
+        err.className = "err";
+        err.textContent = "Non riesco a verificare l'accesso: controlla la connessione.";
+        mostraRiprova(user);
+        return;
       }
       try { const d = await getDocFromCache(doc(db, "meta", "accessi")); accessi = d.exists() ? d.data() : null; } catch {}
     }
@@ -181,7 +202,7 @@ export function setupAuth({ onLogin, onLogout }) {
       (x) => { if (x.code === "permission-denied") espelli(user, testoNonAbilitato(user)); });
 
     onLogin(user);
-  });
+  }
 }
 
 

@@ -1,21 +1,30 @@
 rules_version = '2';
-// Regole per TUTTE le app del progetto (gestione ville + scontrini).
+// Regole per TUTTE le app del progetto (Summer Database + Scontrini + Spese Ville).
+// Versione di riferimento: documento di Progetto claude/vincoli-firebase.md, sezione 3.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function autorizzato() {
+    function emailUtente() { return request.auth.token.email.lower(); }
+    function amministratore() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email.lower() in [
-          'freeze.tacticalseals@gmail.com',
-          'vvmilla@gmail.com'
-        ];
+        && emailUtente() in ['freeze.tacticalseals@gmail.com', 'vvmilla@gmail.com'];
+    }
+    function autorizzato() {
+      return amministratore()
+        || (request.auth != null
+          && request.auth.token.email_verified == true
+          && exists(/databases/$(database)/documents/meta/accessi)
+          && emailUtente() in get(/databases/$(database)/documents/meta/accessi).data.emails);
     }
     match /villas/{id}   { allow read, write: if autorizzato(); }
     match /bookings/{id} { allow read, write: if autorizzato(); }
-    match /meta/{id}     { allow read, write: if autorizzato(); }
-    // App scontrini
-    match /scontrini/{id}      { allow read, write: if autorizzato(); }
-    match /scontrini_foto/{id} { allow read, write: if autorizzato(); }
+    match /meta/accessi  { allow read: if autorizzato(); allow write: if amministratore(); }
+    match /meta/{id}     { allow read, write: if autorizzato() && id != 'accessi'; }
+    match /villas_foto/{id}  { allow read, write: if autorizzato(); }
+    match /villas_thumb/{id} { allow read, write: if autorizzato(); }
+    match /scontrini/{id}       { allow read, write: if autorizzato(); }
+    match /scontrini_foto/{id}  { allow read, write: if autorizzato(); }
+    match /scontrini_audio/{id} { allow read, write: if autorizzato(); }
     match /{document=**} { allow read, write: if false; }
   }
 }
