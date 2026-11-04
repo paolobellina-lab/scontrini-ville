@@ -19,7 +19,7 @@ service cloud.firestore {
     match /villas/{id}   { allow read, write: if autorizzato(); }
     match /bookings/{id} { allow read, write: if autorizzato(); }
     match /meta/accessi  { allow read: if autorizzato(); allow write: if amministratore(); }
-    match /meta/{id}     { allow read, write: if autorizzato() && id != 'accessi'; }
+    match /meta/{id}     { allow read: if autorizzato(); allow write: if autorizzato() && id != 'accessi'; }
     match /villas_foto/{id}  { allow read, write: if autorizzato(); }
     match /villas_thumb/{id} { allow read, write: if autorizzato(); }
     match /scontrini/{id}       { allow read, write: if autorizzato(); }
