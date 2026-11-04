@@ -202,7 +202,7 @@ details.group.generale > summary strong { color: var(--teal); }
 .group-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; }
 .cats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .cats span { font-size: .72rem; letter-spacing: .04em; background: var(--accent-soft); padding: 4px 9px; border-radius: var(--radius); }
-.rc { display: grid; grid-template-columns: 78px 1fr auto auto auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+.rc { display: grid; grid-template-columns: 78px 1fr auto auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
 .rc:last-child { border-bottom: 0; }
 .rc .d { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .82rem; }
 .rc .m { min-width: 0; }
@@ -226,7 +226,7 @@ dialog .dlg-body { padding: 14px; text-align: center; }
 .home img { width: 52px; height: 52px; }
 
 @media (max-width: 420px) {
-  .rc { grid-template-columns: 1fr auto auto auto; }
+  .rc { grid-template-columns: 1fr auto auto; }
   .rc .d { grid-column: 1 / -1; margin-bottom: -6px; }
   h1 { font-size: 1.6rem; }
 }
@@ -237,13 +237,3 @@ dialog .dlg-body { padding: 14px; text-align: center; }
 }
 /* Note sotto i campi: testo normale, non maiuscolo */
 label small { display: block; margin-top: 6px; text-transform: none; letter-spacing: normal; font-size: .8rem; }
-/* Nota audio */
-.campo { display: block; font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-.campo .facoltativo { text-transform: none; letter-spacing: normal; }
-.audio-box > * + * { margin-top: 8px; }
-.audio-box audio { flex: 1; min-width: 0; height: 40px; }
-.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); display: inline-block; }
-.btn.recording { border-color: var(--danger); color: var(--danger); }
-.btn.recording .rec-dot { border-radius: 1px; animation: pulsa 1s infinite; }
-@keyframes pulsa { 50% { opacity: .3; } }
-.audio-box small { display: block; }

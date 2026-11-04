@@ -16,7 +16,6 @@ Le app usano lo stesso progetto e database dell'app di gestione ville.
 - `scontrini`: `villaId`, `prenotazioneId`, `prenotazione` (copia di cliente e date), `data`, `importo`, `categoria`,
   `motivo`, `hasFoto`, `creatoDa`, `creatoIl`
 - `scontrini_foto`: la foto compressa, con lo stesso ID dello scontrino
-- `scontrini_audio`: la nota audio facoltativa (`audio` data URL, `mime`, `durata` in secondi), con lo stesso ID dello scontrino; nello scontrino il campo `hasAudio`
 
 Ogni scontrino conserva una copia di cliente e date della prenotazione. Così, se nell'altra app una prenotazione
 viene modificata o ricreata con un altro ID, lo scontrino resta comunque nel gruppo giusto.

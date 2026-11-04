@@ -75,18 +75,6 @@
         <label>Motivo della spesa
           <textarea name="motivo" rows="3" required placeholder="Es. pulizia finale dopo la partenza degli ospiti"></textarea>
         </label>
-        <div class="audio-box">
-          <span class="campo">Nota audio <span class="facoltativo">(facoltativa)</span></span>
-          <div class="row">
-            <button type="button" class="btn" id="rec"><span class="rec-dot"></span><span id="rec-label">Registra</span></button>
-            <span id="rec-time" class="muted" hidden></span>
-          </div>
-          <div id="audio-play" class="row" hidden>
-            <audio id="audio-el" controls preload="metadata"></audio>
-            <button type="button" class="link danger" id="audio-del">Elimina</button>
-          </div>
-          <small id="audio-hint" class="muted"></small>
-        </div>
         <div class="row">
           <button class="btn primary grow" type="submit">Salva scontrino</button>
           <button class="btn" type="button" id="annulla" hidden>Annulla</button>
@@ -114,7 +102,7 @@
 
 <script type="module">
 import {
-  db, setupAuth, listen, listenDoc, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch,
+  db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
   CATEGORIE, COLL, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
@@ -124,7 +112,6 @@ const f = $("f");
 let user = null, ville = [], pren = [], tutti = [], unsubs = [];
 let assegnazioni = null, vis = null; // vis = null → l'account vede tutto
 let editId = null, fotoNuova = null, prenManuale = false;
-let audioNuovo = null, audioRimosso = false, audioEsistente = false;
 
 f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
 
@@ -254,11 +241,8 @@ f.onsubmit = async (e) => {
   };
   const ref = editId ? doc(db, "scontrini", editId) : doc(collection(db, "scontrini"));
   const b = writeBatch(db);
-  if (audioNuovo) dati.hasAudio = true;
-  else if (audioRimosso || !editId) dati.hasAudio = false;
   if (editId) b.update(ref, { ...dati, ...(fotoNuova ? { hasFoto: true } : {}), modificatoDa: user.email, modificatoIl: serverTimestamp() });
   else b.set(ref, { ...dati, hasFoto: !!fotoNuova, creatoDa: user.email, creatoIl: serverTimestamp() });
-  const audioDaSalvare = audioNuovo, audioDaTogliere = audioRimosso && !audioNuovo;
   if (fotoNuova) b.set(doc(db, "scontrini_foto", ref.id), { img: fotoNuova });
 
   const btn = f.querySelector("[type=submit]");
@@ -270,16 +254,6 @@ f.onsubmit = async (e) => {
   ]).catch((x) => x);
   btn.disabled = false;
   if (esito instanceof Error) return toast("Errore nel salvataggio: " + esito.message);
-  // La nota audio sta in un documento a parte (scontrini_audio/{id}): se fallisce, lo scontrino resta salvato
-  const aRef = doc(db, "scontrini_audio", ref.id);
-  const scritturaAudio = audioDaSalvare ? setDoc(aRef, { ...audioDaSalvare, creatoDa: user.email, creatoIl: serverTimestamp() })
-    : audioDaTogliere ? deleteDoc(aRef) : null;
-  scritturaAudio?.catch((x) => {
-    if (audioDaSalvare) updateDoc(ref, { hasAudio: false }).catch(() => {});
-    setTimeout(() => toast(x.code === "permission-denied"
-      ? "Scontrino salvato, ma la nota audio no: va aggiornata una regola di Firestore."
-      : "Nota audio non salvata: " + x.message), 3600);
-  });
   if (esito === "offline") {
     toast("Salvato sul dispositivo: sarà inviato appena torna la connessione");
     invio.catch((x) => toast("Invio non riuscito: " + x.message));
@@ -292,7 +266,6 @@ f.onsubmit = async (e) => {
 function resetForm() {
   const villa = f.villaId.value;
   editId = null; fotoNuova = null; prenManuale = false;
-  resetAudio();
   f.reset();
   f.villaId.value = villa; // resta selezionata l'ultima villa usata
   f.data.value = oggi();
@@ -308,7 +281,6 @@ $("elimina").onclick = () => {
   b.delete(doc(db, "scontrini", editId));
   b.delete(doc(db, "scontrini_foto", editId));
   b.commit().catch((x) => toast("Errore: " + x.message));
-  deleteDoc(doc(db, "scontrini_audio", editId)).catch(() => {});
   toast("Scontrino eliminato");
   resetForm();
   showTab("inseriti");
@@ -367,7 +339,7 @@ function renderLista() {
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
         <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
-      <div class="amount">${euro(s.importo)}<small>${s.hasFoto ? "con foto" : "senza foto"}${s.hasAudio ? " · audio" : ""}</small></div>
+      <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
   }).join("") : `<p class="muted center">${tutti.length ? "Nessuno scontrino con questi filtri." : "Ancora nessuno scontrino."}</p>`;
 }
@@ -376,8 +348,6 @@ $("lista").onclick = async (e) => {
   const s = b && tutti.find((x) => x.id === b.dataset.s);
   if (!s) return;
   editId = s.id; fotoNuova = null; prenManuale = true;
-  resetAudio();
-  audioEsistente = !!s.hasAudio;
   f.villaId.value = s.villaId;
   f.data.value = s.data;
   f.importo.value = String(s.importo).replace(".", ",");
@@ -392,87 +362,10 @@ $("lista").onclick = async (e) => {
   $("annulla").hidden = $("elimina").hidden = false;
   showPreview(null);
   showTab("nuovo");
-  if (s.hasAudio) {
-    getDoc(doc(db, "scontrini_audio", s.id)).then((d) => {
-      if (editId === s.id && d.exists()) mostraAudio(d.data().audio, d.data().durata);
-    }).catch(() => {});
-  }
   if (s.hasFoto) {
     const d = await getDoc(doc(db, "scontrini_foto", s.id));
     if (editId === s.id && d.exists()) showPreview(d.data().img);
   }
-};
-
-/* ---------- Nota audio ---------- */
-const MAX_SEC = 120, MAX_BYTE = 600000; // ~2 minuti; resta sotto il limite di 1 MB di un documento
-let rec = null, recStream = null, recPezzi = [], recByte = 0, recInizio = 0, recTimer = null, recAnnulla = false;
-const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-const tipoAudio = () => ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
-  .find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || "";
-const blobInDataUrl = (blob) => new Promise((ok, ko) => {
-  const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = ko; r.readAsDataURL(blob);
-});
-function statoRec(attivo) {
-  $("rec").classList.toggle("recording", attivo);
-  $("rec-label").textContent = attivo ? "Ferma" : (audioNuovo || !$("audio-play").hidden ? "Registra di nuovo" : "Registra");
-  $("rec-time").hidden = !attivo;
-}
-function mostraAudio(src, durata) {
-  $("audio-el").src = src;
-  $("audio-play").hidden = false;
-  $("audio-hint").textContent = "";
-  statoRec(false);
-}
-function resetAudio() {
-  if (rec && rec.state === "recording") { recAnnulla = true; rec.stop(); }
-  audioNuovo = null; audioRimosso = false; audioEsistente = false;
-  $("audio-el").pause(); $("audio-el").removeAttribute("src"); $("audio-el").load?.();
-  $("audio-play").hidden = true; $("audio-hint").textContent = "";
-  statoRec(false);
-}
-$("audio-del").onclick = () => {
-  $("audio-el").pause();
-  audioNuovo = null; audioRimosso = audioEsistente;
-  $("audio-play").hidden = true; $("audio-hint").textContent = "";
-  statoRec(false);
-};
-$("rec").onclick = async () => {
-  if (rec && rec.state === "recording") return rec.stop();
-  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia)
-    return toast("Questo dispositivo non permette di registrare audio dall'app");
-  try { recStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch { return toast("Serve il permesso di usare il microfono"); }
-  const mime = tipoAudio();
-  try { rec = new MediaRecorder(recStream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 }); }
-  catch { rec = new MediaRecorder(recStream); }
-  recPezzi = []; recByte = 0; recAnnulla = false;
-  rec.ondataavailable = (e) => {
-    if (!e.data.size) return;
-    recPezzi.push(e.data); recByte += e.data.size;
-    if (recByte > MAX_BYTE && rec.state === "recording") { toast("Raggiunta la lunghezza massima della nota"); rec.stop(); }
-  };
-  rec.onstop = async () => {
-    clearInterval(recTimer);
-    recStream.getTracks().forEach((t) => t.stop());
-    const r = rec; rec = null;
-    if (recAnnulla) { statoRec(false); return; }
-    const durata = Math.max(1, Math.round((Date.now() - recInizio) / 1000));
-    const blob = new Blob(recPezzi, { type: (r.mimeType || mime || "audio/webm").split(";")[0] });
-    const url = await blobInDataUrl(blob);
-    if (url.length > 900000) { toast("Nota audio troppo lunga: registrane una più breve"); statoRec(false); return; }
-    audioNuovo = { audio: url, mime: blob.type, durata };
-    audioRimosso = false;
-    mostraAudio(url, durata);
-  };
-  rec.start(1000);
-  recInizio = Date.now();
-  $("rec-time").textContent = `0:00 / ${mmss(MAX_SEC)}`;
-  statoRec(true);
-  recTimer = setInterval(() => {
-    const t = (Date.now() - recInizio) / 1000;
-    $("rec-time").textContent = `${mmss(t)} / ${mmss(MAX_SEC)}`;
-    if (t >= MAX_SEC && rec?.state === "recording") rec.stop();
-  }, 250);
 };
 </script>
 </body>

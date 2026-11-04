@@ -199,7 +199,6 @@ function render() {
             <span class="d">${dataIt(s.data)}</span>
             <div class="m">${esc(s.motivo)}<small>${esc(s.categoria)} · ${esc(s.creatoDa || "")}</small></div>
             <span class="amount">${euro(s.importo)}</span>
-            ${s.hasAudio ? `<button class="thumb" type="button" data-audio="${s.id}" title="Ascolta la nota audio" aria-label="Ascolta la nota audio">▶</button>` : `<span></span>`}
             <button class="thumb" type="button" data-foto="${s.id}" ${s.hasFoto ? "" : "disabled"} title="${s.hasFoto ? "Vedi foto" : "Nessuna foto"}" aria-label="Vedi foto">${s.hasFoto ? "🧾" : "–"}</button>
           </div>`).join("")}
         </div>
@@ -227,31 +226,6 @@ $("stampa").onclick = () => {
   document.querySelectorAll("details.group").forEach((d) => (d.open = true));
   setTimeout(() => window.print(), 50);
 };
-
-/* ---------- Nota audio ---------- */
-const player = new Audio();
-let inAscolto = null;
-player.onended = () => { document.querySelector(`[data-audio="${inAscolto}"]`)?.replaceChildren("▶"); inAscolto = null; };
-$("out").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-audio]");
-  if (!b) return;
-  const id = b.dataset.audio;
-  if (inAscolto === id) { player.pause(); b.textContent = "▶"; inAscolto = null; return; }
-  if (inAscolto) document.querySelector(`[data-audio="${inAscolto}"]`)?.replaceChildren("▶");
-  player.pause();
-  inAscolto = id; b.textContent = "…";
-  try {
-    const d = await getDoc(doc(db, "scontrini_audio", id));
-    if (inAscolto !== id) return;
-    if (!d.exists()) { b.textContent = "▶"; inAscolto = null; return toast("Nota audio non trovata"); }
-    player.src = d.data().audio;
-    await player.play();
-    b.textContent = "❚❚";
-  } catch (x) {
-    b.textContent = "▶"; inAscolto = null;
-    toast(x.name === "NotSupportedError" ? "Questo dispositivo non riesce a riprodurre la nota" : "Errore: " + x.message);
-  }
-});
 
 /* ---------- Foto ---------- */
 $("out").addEventListener("click", async (e) => {
