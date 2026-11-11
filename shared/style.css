@@ -238,8 +238,21 @@ dialog .dlg-body { padding: 14px; text-align: center; }
 /* Note sotto i campi: testo normale, non maiuscolo */
 label small { display: block; margin-top: 6px; text-transform: none; letter-spacing: normal; font-size: .8rem; }
 /* Schede prenotazioni */
-.tabs .corto { display: none; }
-@media (max-width: 440px) { .tabs .lungo { display: none; } .tabs .corto { display: inline; } }
+/* Sezioni in alto (Scontrini / Schede prenotazioni) */
+.sezioni { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap; }
+.sezioni button {
+  border: 0; background: none; padding: 0 0 2px; margin: 0; cursor: pointer; color: var(--muted);
+  font: 400 1.85rem/1.15 var(--serif); letter-spacing: .005em; border-bottom: 1px solid transparent;
+}
+.sezioni button.on { color: var(--ink); border-bottom-color: var(--accent); }
+.sezioni button:not(.on):hover { color: var(--ink); }
+.sezioni .corto { display: none; }
+@media (max-width: 480px) {
+  .sezioni { gap: 14px; }
+  .sezioni button { font-size: 1.4rem; }
+  .sezioni .lungo { display: none; } .sezioni .corto { display: inline; }
+  .topbar .theme-btn span { display: none; }
+}
 .scheda > * + * { margin-top: 16px; }
 .scheda-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .scheda-head h3 { font-size: 1.6rem; font-weight: 400; }

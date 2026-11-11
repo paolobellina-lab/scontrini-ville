@@ -33,7 +33,12 @@
 
 <div id="app" hidden>
   <header class="topbar">
-    <div class="brand"><div><span class="eyebrow">Ville · Gestione spese</span><h1>Scontrini</h1></div></div>
+    <div class="brand"><div><span class="eyebrow">Ville · Gestione spese</span>
+      <nav class="sezioni" aria-label="Sezioni">
+        <button type="button" data-sez="scontrini" class="on">Scontrini</button>
+        <button type="button" data-sez="schede"><span class="lungo">Schede prenotazioni</span><span class="corto">Prenotazioni</span></button>
+      </nav>
+    </div></div>
     <div class="actions">
       <button class="theme-btn" type="button" data-tema aria-label="Cambia tema"></button>
       <button class="link" data-logout>Esci</button>
@@ -42,7 +47,6 @@
   <nav class="tabs">
     <button data-tab="nuovo" class="active">Nuovo</button>
     <button data-tab="inseriti">Inseriti</button>
-    <button data-tab="schede"><span class="lungo">Schede prenotazioni</span><span class="corto">Prenotazioni</span></button>
   </nav>
 
   <main id="main">
@@ -159,7 +163,15 @@ setupAuth({
 
 /* ---------- Schede ---------- */
 document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+/* Sezioni in alto: "Scontrini" (schede Nuovo e Inseriti) e "Schede prenotazioni" */
+let ultimaScontrini = "nuovo", bloccatoVis = false;
+document.querySelectorAll("[data-sez]").forEach((b) => (b.onclick = () =>
+  showTab(b.dataset.sez === "schede" ? "schede" : ultimaScontrini)));
 function showTab(t) {
+  const sez = t === "schede" ? "schede" : "scontrini";
+  if (sez === "scontrini") ultimaScontrini = t;
+  document.querySelectorAll("[data-sez]").forEach((b) => b.classList.toggle("on", b.dataset.sez === sez));
+  document.querySelector(".tabs").hidden = sez === "schede" || bloccatoVis;
   document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
   ["nuovo", "inseriti", "schede"].forEach((x) => ($("tab-" + x).hidden = x !== t));
   window.scrollTo(0, 0);
@@ -191,7 +203,9 @@ function aggiornaVisibilita() {
   const vuoto = !!vis?.vuoto;
   $("no-assegn").hidden = !vuoto;
   $("main").classList.toggle("bloccato", vuoto);
-  document.querySelector(".tabs").hidden = vuoto;
+  bloccatoVis = vuoto;
+  document.querySelector(".sezioni").hidden = vuoto;
+  document.querySelector(".tabs").hidden = vuoto || !$("tab-schede").hidden;
   $("assegn-info").hidden = !vis || vuoto;
   $("assegn-info").textContent = "Vedi solo le ville e le prenotazioni assegnate al tuo account.";
   if (editId) { // lo scontrino in modifica non è più visibile → chiudo la modifica
