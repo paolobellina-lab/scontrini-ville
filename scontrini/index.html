@@ -107,8 +107,12 @@
         <label>Villa<select id="sc-villa"></select></label>
         <label>Periodo
           <select id="sc-periodo">
-            <option value="future">Prossime</option>
             <option value="passate">Passate</option>
+            <option value="sett0" selected>Questa settimana</option>
+            <option value="sett1">Prossima settimana</option>
+            <option value="prox2">Prossime 2 settimane</option>
+            <option value="prox3">Prossime 3 settimane</option>
+            <option value="prox4">Prossime 4 settimane</option>
             <option value="tutte">Tutte</option>
           </select>
         </label>
@@ -125,7 +129,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CATEGORIE, COLL, SERVIZI_BASE, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CATEGORIE, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -421,6 +425,19 @@ const giorno = (iso) => {
   return new Date(y, m - 1, d).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 };
 const notti = (a, b) => Math.round((Date.parse(b + "T12:00:00") - Date.parse(a + "T12:00:00")) / 86400000);
+/* Finestra di date del periodo scelto (settimane da lunedì a domenica; "prossime N settimane" da oggi).
+   Una prenotazione rientra se si sovrappone alla finestra, quindi anche quelle già in corso. */
+const piuGiorni = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return isoLocale(new Date(y, m - 1, d + n)); };
+const breve = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); };
+function finestra(periodo) {
+  const oggiIso = oggi();
+  const lunedi = piuGiorni(oggiIso, -((new Date().getDay() + 6) % 7));
+  if (periodo === "sett0") return [lunedi, piuGiorni(lunedi, 6)];
+  if (periodo === "sett1") return [piuGiorni(lunedi, 7), piuGiorni(lunedi, 13)];
+  const m = /^prox(\d)$/.exec(periodo);
+  if (m) return [oggiIso, piuGiorni(oggiIso, Number(m[1]) * 7 - 1)];
+  return null;
+}
 const nomeServizio = (k) => (SERVIZI_BASE.find(([x]) => x === k) || serviziExtra.find(([x]) => x === k) || [k, k])[1];
 
 function renderSchede() {
@@ -436,7 +453,8 @@ function renderSchede() {
 
   const oggiIso = oggi(), periodo = $("sc-periodo").value, q = $("sc-q").value.trim().toLowerCase();
   let lista = visibiliPren.filter((p) => !sv.value || p.villaId === sv.value);
-  if (periodo === "future") lista = lista.filter((p) => p.checkOut >= oggiIso).sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  const fin = finestra(periodo);
+  if (fin) lista = lista.filter((p) => p.checkIn <= fin[1] && p.checkOut >= fin[0]).sort((a, b) => a.checkIn.localeCompare(b.checkIn));
   else if (periodo === "passate") lista = lista.filter((p) => p.checkOut < oggiIso).sort((a, b) => b.checkIn.localeCompare(a.checkIn));
   else lista = lista.slice().sort((a, b) => b.checkIn.localeCompare(a.checkIn));
   if (q) lista = lista.filter((p) => [nomeV(p.villaId), p.cliente, p.note, ...p.servizi.map(nomeServizio), ...Object.values(p.noteServizi)]
@@ -452,7 +470,8 @@ function renderSchede() {
     spese.set(p.id, x);
   });
 
-  $("sc-info").textContent = `${lista.length} ${lista.length === 1 ? "prenotazione" : "prenotazioni"}`;
+  $("sc-info").textContent = `${lista.length} ${lista.length === 1 ? "prenotazione" : "prenotazioni"}` +
+    (fin ? ` · ${breve(fin[0])} – ${breve(fin[1])}` : "");
   $("sc-lista").innerHTML = lista.length ? lista.map((p) => {
     const inCorso = p.checkIn <= oggiIso && oggiIso <= p.checkOut;
     const sp = spese.get(p.id);
@@ -478,9 +497,12 @@ function renderSchede() {
         <button type="button" class="btn" data-nuovo-per="${esc(p.id)}">Aggiungi scontrino</button>
       </div>
     </article>`;
-  }).join("") : `<p class="muted center" style="padding:24px 0">Nessuna prenotazione${q ? " trovata" : periodo === "future" ? " in corso o in arrivo" : ""}.</p>`;
+  }).join("") : `<p class="muted center" style="padding:24px 0">Nessuna prenotazione${q ? " trovata" : fin ? " in questo periodo" : ""}.</p>`;
 }
 ["sc-villa", "sc-periodo"].forEach((id) => ($(id).onchange = renderSchede));
+// il periodo scelto resta ricordato su questo dispositivo
+try { const pr = localStorage.getItem("periodo-schede"); if (pr && [...$("sc-periodo").options].some((o) => o.value === pr)) $("sc-periodo").value = pr; } catch {}
+$("sc-periodo").addEventListener("change", () => { try { localStorage.setItem("periodo-schede", $("sc-periodo").value); } catch {} });
 $("sc-q").oninput = renderSchede;
 $("sc-lista").onclick = (e) => {
   const b = e.target.closest("[data-nuovo-per]");
