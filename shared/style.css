@@ -237,3 +237,30 @@ dialog .dlg-body { padding: 14px; text-align: center; }
 }
 /* Note sotto i campi: testo normale, non maiuscolo */
 label small { display: block; margin-top: 6px; text-transform: none; letter-spacing: normal; font-size: .8rem; }
+/* Schede prenotazioni */
+.tabs .corto { display: none; }
+@media (max-width: 440px) { .tabs .lungo { display: none; } .tabs .corto { display: inline; } }
+.scheda > * + * { margin-top: 16px; }
+.scheda-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.scheda-head h3 { font-size: 1.6rem; font-weight: 400; }
+.badge {
+  flex: none; font-size: .62rem; letter-spacing: .16em; text-transform: uppercase; color: var(--accent-ink);
+  background: var(--accent); padding: 5px 9px; border-radius: var(--radius);
+}
+.scheda-date { display: grid; grid-template-columns: 1fr 1fr auto; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scheda-date strong { display: block; font-family: var(--serif); font-weight: 500; font-size: 1.15rem; }
+.scheda-date em { display: block; font-style: normal; font-size: .78rem; color: var(--accent-dark); margin-top: 2px; }
+.scheda-date > div:last-child { text-align: right; }
+.servizi { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.servizi li { padding: 8px 12px; background: var(--bg); border-left: 2px solid var(--accent); }
+.servizi li b { font-weight: 500; }
+.servizi li span { display: block; font-size: .85rem; color: var(--muted); margin-top: 2px; white-space: pre-line; }
+.scheda-blocco p { margin: 0; }
+.scheda-note { white-space: pre-line; }
+.scheda-piede { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scheda-piede .btn { font-size: .85rem; padding: 10px 14px; }
+@media (max-width: 420px) {
+  .scheda-date { grid-template-columns: 1fr 1fr; }
+  .scheda-date > div:last-child { grid-column: 1 / -1; text-align: left; }
+}
+.campo { display: block; font-size: .64rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }

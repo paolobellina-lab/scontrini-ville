@@ -42,6 +42,7 @@
   <nav class="tabs">
     <button data-tab="nuovo" class="active">Nuovo</button>
     <button data-tab="inseriti">Inseriti</button>
+    <button data-tab="schede"><span class="lungo">Schede prenotazioni</span><span class="corto">Prenotazioni</span></button>
   </nav>
 
   <main id="main">
@@ -96,6 +97,23 @@
       <div id="lista" class="list"></div>
     </section>
 
+    <!-- Schede prenotazioni (dati di Summer Database, senza prezzi, stato e colore) -->
+    <section id="tab-schede" hidden>
+      <div class="card filters">
+        <label>Villa<select id="sc-villa"></select></label>
+        <label>Periodo
+          <select id="sc-periodo">
+            <option value="future">Prossime</option>
+            <option value="passate">Passate</option>
+            <option value="tutte">Tutte</option>
+          </select>
+        </label>
+        <label class="wide">Cerca<input id="sc-q" type="search" placeholder="Cliente, note o servizi"></label>
+      </div>
+      <p id="sc-info" class="muted" style="margin:0 2px 10px"></p>
+      <div id="sc-lista"></div>
+    </section>
+
   </main>
 </div>
 <div id="toast" class="toast" hidden></div>
@@ -103,7 +121,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CATEGORIE, COLL, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CATEGORIE, COLL, SERVIZI_BASE, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -111,6 +129,7 @@ const $ = (id) => document.getElementById(id);
 const f = $("f");
 let user = null, ville = [], pren = [], tutti = [], unsubs = [];
 let assegnazioni = null, vis = null; // vis = null → l'account vede tutto
+let serviziExtra = []; // servizi aggiunti in Summer Database (meta/settings.servizi)
 let editId = null, fotoNuova = null, prenManuale = false;
 
 f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
@@ -121,13 +140,17 @@ setupAuth({
     unsubs = [
       // Assegnazioni account → ville/prenotazioni, gestite da Summer Database (qui solo lettura)
       listenDoc("meta", "assegnazioni", (d) => { assegnazioni = d; aggiornaVisibilita(); }),
+      listenDoc("meta", "settings", (d) => {
+        serviziExtra = (Array.isArray(d?.servizi) ? d.servizi : []).filter((x) => x && x.key).map((x) => [x.key, x.label || x.key]);
+        renderSchede();
+      }),
       listen(COLL.ville, (v) => { ville = v.map(normVilla).sort((a, b) => a.nome.localeCompare(b.nome, "it", { numeric: true })); renderVille(); }),
       listen(COLL.prenotazioni, (p) => {
         pren = p.map(normPren).filter((x) => x.villaId && x.checkIn && x.checkOut)
           .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
         aggiornaVisibilita();
       }),
-      listen("scontrini", (s) => { tutti = s; renderLista(); }),
+      listen("scontrini", (s) => { tutti = s; renderLista(); renderSchede(); }),
     ];
     resetForm();
   },
@@ -138,7 +161,7 @@ setupAuth({
 document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 function showTab(t) {
   document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
-  ["nuovo", "inseriti"].forEach((x) => ($("tab-" + x).hidden = x !== t));
+  ["nuovo", "inseriti", "schede"].forEach((x) => ($("tab-" + x).hidden = x !== t));
   window.scrollTo(0, 0);
 }
 
@@ -185,7 +208,7 @@ function renderVille() {
   f.villaId.innerHTML = `<option value="">— Scegli la villa —</option>` +
     lista.map((v) => `<option value="${esc(v.id)}">${esc(v.nome)}</option>`).join("");
   f.villaId.value = lista.some((v) => v.id === cur) ? cur : lista.length === 1 ? lista[0].id : "";
-  renderPrenSelect(); renderLista();
+  renderPrenSelect(); renderLista(); renderSchede();
 }
 
 /* Menu prenotazioni nel modulo: si sceglie da solo in base a villa e data */
@@ -366,6 +389,86 @@ $("lista").onclick = async (e) => {
     const d = await getDoc(doc(db, "scontrini_foto", s.id));
     if (editId === s.id && d.exists()) showPreview(d.data().img);
   }
+};
+
+/* ---------- Schede prenotazioni ---------- */
+const giorno = (iso) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+};
+const notti = (a, b) => Math.round((Date.parse(b + "T12:00:00") - Date.parse(a + "T12:00:00")) / 86400000);
+const nomeServizio = (k) => (SERVIZI_BASE.find(([x]) => x === k) || serviziExtra.find(([x]) => x === k) || [k, k])[1];
+
+function renderSchede() {
+  const sv = $("sc-villa");
+  if (!sv) return;
+  const visibiliPren = pren.filter(prenVisibile);
+  const idsVille = [...new Set(visibiliPren.map((p) => p.villaId))];
+  const nomeV = (id) => ville.find((v) => v.id === id)?.nome || "Villa " + id;
+  idsVille.sort((a, b) => nomeV(a).localeCompare(nomeV(b), "it", { numeric: true }));
+  const cur = sv.value;
+  sv.innerHTML = `<option value="">Tutte le ville</option>` + idsVille.map((id) => `<option value="${esc(id)}">${esc(nomeV(id))}</option>`).join("");
+  sv.value = idsVille.includes(cur) ? cur : "";
+
+  const oggiIso = oggi(), periodo = $("sc-periodo").value, q = $("sc-q").value.trim().toLowerCase();
+  let lista = visibiliPren.filter((p) => !sv.value || p.villaId === sv.value);
+  if (periodo === "future") lista = lista.filter((p) => p.checkOut >= oggiIso).sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  else if (periodo === "passate") lista = lista.filter((p) => p.checkOut < oggiIso).sort((a, b) => b.checkIn.localeCompare(a.checkIn));
+  else lista = lista.slice().sort((a, b) => b.checkIn.localeCompare(a.checkIn));
+  if (q) lista = lista.filter((p) => [nomeV(p.villaId), p.cliente, p.note, ...p.servizi.map(nomeServizio), ...Object.values(p.noteServizi)]
+    .join(" ").toLowerCase().includes(q));
+
+  // scontrini collegati a ciascuna prenotazione
+  const spese = new Map();
+  tutti.filter(scontrinoVisibile).forEach((s) => {
+    const p = trovaPren(s, pren);
+    if (!p) return;
+    const x = spese.get(p.id) || { n: 0, tot: 0 };
+    x.n++; x.tot += Number(s.importo) || 0;
+    spese.set(p.id, x);
+  });
+
+  $("sc-info").textContent = `${lista.length} ${lista.length === 1 ? "prenotazione" : "prenotazioni"}`;
+  $("sc-lista").innerHTML = lista.length ? lista.map((p) => {
+    const inCorso = p.checkIn <= oggiIso && oggiIso <= p.checkOut;
+    const sp = spese.get(p.id);
+    const servizi = [...new Set(p.servizi)];
+    return `<article class="card scheda">
+      <div class="scheda-head">
+        <div><span class="eyebrow">${esc(nomeV(p.villaId))}</span>
+          <h3>${p.cliente ? esc(p.cliente) : '<span class="muted">Cliente non indicato</span>'}</h3></div>
+        ${inCorso ? '<span class="badge">In corso</span>' : ""}
+      </div>
+      <div class="scheda-date">
+        <div><span class="campo">Check-in</span><strong>${giorno(p.checkIn)}</strong>${p.early ? '<em>Early check-in</em>' : ""}</div>
+        <div><span class="campo">Check-out</span><strong>${giorno(p.checkOut)}</strong>${p.late ? '<em>Late check-out</em>' : ""}</div>
+        <div><span class="campo">Notti</span><strong>${notti(p.checkIn, p.checkOut)}</strong></div>
+      </div>
+      <div class="scheda-blocco"><span class="campo">Servizi</span>
+        ${servizi.length ? `<ul class="servizi">${servizi.map((k) => `<li><b>${esc(nomeServizio(k))}</b>${p.noteServizi[k] ? `<span>${esc(p.noteServizi[k])}</span>` : ""}</li>`).join("")}</ul>`
+          : '<p class="muted">Nessun servizio</p>'}
+      </div>
+      ${p.note ? `<div class="scheda-blocco"><span class="campo">Note</span><p class="scheda-note">${esc(p.note)}</p></div>` : ""}
+      <div class="scheda-piede">
+        <span class="muted">${sp ? `${sp.n} ${sp.n === 1 ? "scontrino" : "scontrini"} · ${euro(sp.tot)}` : "Nessuno scontrino"}</span>
+        <button type="button" class="btn" data-nuovo-per="${esc(p.id)}">Aggiungi scontrino</button>
+      </div>
+    </article>`;
+  }).join("") : `<p class="muted center" style="padding:24px 0">Nessuna prenotazione${q ? " trovata" : periodo === "future" ? " in corso o in arrivo" : ""}.</p>`;
+}
+["sc-villa", "sc-periodo"].forEach((id) => ($(id).onchange = renderSchede));
+$("sc-q").oninput = renderSchede;
+$("sc-lista").onclick = (e) => {
+  const b = e.target.closest("[data-nuovo-per]");
+  const p = b && pren.find((x) => x.id === b.dataset.nuovoPer);
+  if (!p) return;
+  resetForm();
+  f.villaId.value = p.villaId;
+  if (p.checkIn > oggi() || p.checkOut < oggi()) f.data.value = p.checkOut < oggi() ? p.checkOut : p.checkIn;
+  prenManuale = true;
+  renderPrenSelect();
+  f.prenotazioneId.value = p.id;
+  showTab("nuovo");
 };
 </script>
 </body>

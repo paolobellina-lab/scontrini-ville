@@ -36,10 +36,19 @@ export const COLL = { ville: "villas", prenotazioni: "bookings" };
 export const nomeVilla = (v) =>
   (v && (v.nome || v.name || v.titolo || v.title || v.label)) || (v ? "Villa " + v.id : "Villa non trovata");
 export const normVilla = (v) => ({ ...v, nome: nomeVilla(v) });
+/* Solo i campi che servono a queste app: i prezzi (prezzoVendita, prezzoAcquisto, prezzi dei servizi),
+   lo stato e il colore della prenotazione non vengono copiati. */
 export const normPren = (b) => ({
   id: b.id, villaId: b.villaId, ospite: (b.cliente || "").trim() || "Prenotazione senza nome",
+  cliente: (b.cliente || "").trim(),
   checkIn: b.from, checkOut: b.to, status: b.status || "", note: b.note || "",
+  early: !!b.earlyIn, late: !!b.lateOut,
+  servizi: [...SERVIZI_BASE.map(([k]) => k).filter((k) => b[k]), ...(Array.isArray(b.servizi) ? b.servizi : [])],
+  noteServizi: Object.fromEntries(Object.entries(b.serviziDett || {})
+    .map(([k, d]) => [k, String((d && d.note) || "").trim()]).filter(([, n]) => n)),
 });
+/* Servizi di base della scheda prenotazione di Summer Database; gli altri arrivano da meta/settings.servizi */
+export const SERVIZI_BASE = [["pulizia", "Pulizia finale"], ["cuoco", "Cuoco"], ["transfer", "Transfer"]];
 /* Copia dei dati essenziali della prenotazione salvata dentro lo scontrino:
    se la prenotazione viene modificata o ricreata nell'altra app, lo scontrino resta raggruppato bene. */
 export const fotoPren = (p) => (p ? { cliente: p.ospite, from: p.checkIn, to: p.checkOut } : null);
