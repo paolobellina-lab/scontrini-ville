@@ -34,7 +34,8 @@ Le app Scontrini e Spese Ville lo leggono soltanto:
 ## Ville visibili per account
 
 L'app Scontrini legge (senza mai scriverlo) il documento `meta/assegnazioni`, gestito da Summer Database:
-- account **non presente** nell'elenco → vede tutte le ville e tutti gli scontrini;
+- amministratore (non presente in `meta/accessi.utenti`) senza assegnazioni → vede tutto;
+- altro account **non presente** nelle assegnazioni → non vede nessuna villa ("Nessuna villa assegnata");
 - account presente → vede solo le ville intere assegnate e le singole prenotazioni assegnate
   (più le spese generali di quelle ville);
 - account con nessuna villa e nessuna prenotazione → messaggio "Nessuna villa assegnata".

@@ -132,7 +132,8 @@ import {
 const $ = (id) => document.getElementById(id);
 const f = $("f");
 let user = null, ville = [], pren = [], tutti = [], unsubs = [];
-let assegnazioni = null, vis = null; // vis = null → l'account vede tutto
+let assegnazioni = null, vis = null; // vis = null → l'account vede tutto (solo amministratori)
+let utentiAccessi = [], caricati = {};
 let serviziExtra = []; // servizi aggiunti in Summer Database (meta/settings.servizi)
 let editId = null, fotoNuova = null, prenManuale = false;
 
@@ -143,7 +144,9 @@ setupAuth({
     user = u;
     unsubs = [
       // Assegnazioni account → ville/prenotazioni, gestite da Summer Database (qui solo lettura)
-      listenDoc("meta", "assegnazioni", (d) => { assegnazioni = d; aggiornaVisibilita(); }),
+      listenDoc("meta", "assegnazioni", (d) => { assegnazioni = d; caricati.assegnazioni = true; aggiornaVisibilita(); }),
+      // chi è in meta/accessi.utenti non è amministratore: vede solo ciò che gli è assegnato
+      listenDoc("meta", "accessi", (d) => { utentiAccessi = d?.utenti || []; caricati.accessi = true; aggiornaVisibilita(); }),
       listenDoc("meta", "settings", (d) => {
         serviziExtra = (Array.isArray(d?.servizi) ? d.servizi : []).filter((x) => x && x.key).map((x) => [x.key, x.label || x.key]);
         renderSchede();
@@ -158,7 +161,7 @@ setupAuth({
     ];
     resetForm();
   },
-  onLogout() { unsubs.forEach((u) => u()); unsubs = []; assegnazioni = null; vis = null; },
+  onLogout() { unsubs.forEach((u) => u()); unsubs = []; assegnazioni = null; vis = null; utentiAccessi = []; caricati = {}; },
 });
 
 /* ---------- Schede ---------- */
@@ -180,8 +183,15 @@ function showTab(t) {
 /* ---------- Ville e prenotazioni visibili per questo account ---------- */
 function calcolaVisibilita() {
   const email = (user?.email || "").toLowerCase();
+  const nessuna = { villeIntere: new Set(), prenAss: new Set(), villeVis: new Set(), vuoto: false };
+  if (!caricati.assegnazioni || !caricati.accessi) return nessuna; // finché non so chi è, non mostro niente
   const acc = (assegnazioni?.account || []).find((a) => String(a.email || "").toLowerCase() === email);
-  if (!acc) return null; // non assegnato → vede tutto
+  if (!acc) {
+    // Amministratore (non presente in meta/accessi.utenti): vede tutto.
+    // Ogni altro account senza assegnazioni non vede nessuna villa.
+    const amministratore = !utentiAccessi.some((u) => String(u.email || "").toLowerCase() === email);
+    return amministratore ? null : { ...nessuna, vuoto: true };
+  }
   const villeIntere = new Set(acc.ville || []);
   const prenAss = new Set(acc.prenotazioni || []);
   const villeVis = new Set(villeIntere);
