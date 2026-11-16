@@ -1,84 +1,98 @@
-# App Ville: Scontrini + Spese Ville
+# App Scontrini (ville)
 
-Le app sono due e usano lo stesso database Firebase:
+App web per fotografare gli scontrini delle ville e assegnarli a villa e prenotazione.
+Usa lo stesso progetto Firebase e lo stesso database di **Summer Database** (l'app di gestione ville).
 
-| Cartella | App | Cosa fa |
-|---|---|---|
-| `scontrini/` | **Scontrini** | Fotografi lo scontrino, scrivi importo e motivo, scegli villa e prenotazione; nella scheda Inseriti li ritrovi filtrando per villa e prenotazione |
-| `consulta/` | **Spese Ville** | Vedi tutti gli scontrini raggruppati per **villa → prenotazione**, con i totali, le foto e l'esportazione per Excel |
+| Cartella | Cosa contiene |
+|---|---|
+| `scontrini/` | **App Scontrini**: sezione *Scontrini* (schede Nuovo e Inseriti) e sezione *Schede prenotazioni* |
+| `consulta/` | **Dismessa il 16/11/2026** (era "Spese Ville"): pagina che rimanda alla pagina **Prenotazioni** di Summer Database, https://paolobellina-lab.github.io/summer-database/#prenotazioni |
+| `shared/` | codice comune: `firebase.js` (connessione, accesso, regole di collegamento e categorie), `style.css`, `tema.js`, icone |
 
-## Come sono organizzati i dati (Firestore, database "(default)")
+Il riepilogo delle spese (spese reali per prenotazione, vendita, acquisto, deposito, margini, esportazioni)
+si consulta ora solo in Summer Database.
 
-Le app usano lo stesso progetto e database dell'app di gestione ville.
+## Dati (Firestore, database "(default)")
 
-- `villas` e `bookings`: **gestite dall'app di gestione ville**. Le app degli scontrini le leggono soltanto.
-  Dalle prenotazioni si usano i campi `villaId`, `cliente`, `from`, `to` e `status`.
+- `villas` e `bookings`: **gestite da Summer Database**. L'app Scontrini le legge soltanto.
+  Dalle prenotazioni usa solo: `villaId`, `cliente`, `from`, `to`, `status` (solo per l'etichetta nel menu),
+  `earlyIn`, `lateOut`, `pulizia`, `cuoco`, `transfer`, `servizi`, `serviziDett.{chiave}.note`, `note`.
+  **Non mostra mai i dati economici**: `prezzoVendita`, `prezzoAcquisto`, `deposito` (deposito di sicurezza),
+  i prezzi dei servizi e `serviziDett.*.incluso`; nemmeno stato e colore nelle schede.
+  `normPren` in `shared/firebase.js` copia solo i campi consentiti.
+- `meta/settings.servizi`: nomi dei servizi aggiunti in Summer Database.
 - `scontrini`: `villaId`, `prenotazioneId`, `prenotazione` (copia di cliente e date), `data`, `importo`, `categoria`,
-  `motivo`, `hasFoto`, `creatoDa`, `creatoIl`
-- `scontrini_foto`: la foto compressa, con lo stesso ID dello scontrino
+  `motivo`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
+- `scontrini_foto`: la foto compressa, con lo stesso ID dello scontrino. Le foto stanno in Firestore, non in Storage.
 
-Ogni scontrino conserva una copia di cliente e date della prenotazione. Così, se nell'altra app una prenotazione
-viene modificata o ricreata con un altro ID, lo scontrino resta comunque nel gruppo giusto.
-Le foto stanno in Firestore e non in Storage, così basta il piano gratuito.
+Le modifiche agli scontrini usano sempre `update`, così l'array `storico` di Summer Database non si perde.
+In Summer Database una prenotazione con scontrini non si può eliminare: prima gli scontrini vanno spostati
+su un'altra prenotazione o eliminati.
+
+### Collegamento scontrino → prenotazione (`trovaPren`)
+1. `bookings[prenotazioneId]` se esiste e ha lo stesso `villaId`. Non si controllano più le date della copia:
+   se le date della prenotazione cambiano, lo scontrino resta collegato (dal 16/11/2026).
+2. Altrimenti la prenotazione della stessa villa con `from` e `to` uguali alla copia salvata nello scontrino.
+3. Altrimenti si usa la copia, segnata "non più in calendario".
+4. Nessun `prenotazioneId` e nessuna copia → "spesa generale della villa".
+
+### Categorie (`CATEGORIE` in `shared/firebase.js`)
+Pulizie, Manutenzione, Lavanderia, Spesa e forniture, Utenze, Giardino e piscina, Benvenuto ospiti,
+Commissioni e tasse, **Danni villa** (spesa normale), Altro.
+
+**Restituzione deposito sicurezza** (`CAT_RESTITUZIONE`):
+- si inserisce solo da Summer Database e non è proposta nel menu dell'app Scontrini;
+- l'`importo` è salvato **positivo** e non va cambiato, ma si mostra con il meno (es. −4.000,00 €);
+- è denaro restituito al cliente, non una spesa della villa: è **escluso da tutti i totali** delle spese
+  (`importoSpesa` restituisce 0) e dal conteggio scontrini delle schede prenotazione;
+- nell'app Scontrini non si può modificare: toccandola compare un avviso.
+
+Se si modifica uno scontrino con una categoria fuori elenco, quella categoria viene aggiunta al menu solo per
+quello scontrino, così salvando non cambia.
 
 ## Chi può entrare
 
-L'elenco degli account si gestisce in Summer Database (Impostazioni → Account autorizzati, documento `meta/accessi`).
-Le app Scontrini e Spese Ville lo leggono soltanto:
+L'elenco degli account si gestisce in Summer Database (Impostazioni → Account e accessi, documento `meta/accessi`).
+L'app Scontrini lo legge soltanto:
 - account **non in elenco** ma fatto entrare dalle regole → amministratore, entra sempre;
 - account in elenco **con** la casella `scontrini` → entra;
 - account in elenco **senza** `scontrini`, o bloccato dalle regole → esce subito con il messaggio
   "L'account … non è abilitato a questa app" e i dati salvati sul dispositivo vengono cancellati;
 - il controllo continua mentre l'app è aperta: se la casella viene tolta, l'utente esce subito.
 
+L'accesso resta ricordato sul dispositivo finché non si preme "Esci".
+
 ## Ville visibili per account
 
-L'app Scontrini legge (senza mai scriverlo) il documento `meta/assegnazioni`, gestito da Summer Database:
+L'app legge (senza mai scriverlo) il documento `meta/assegnazioni`, gestito da Summer Database:
 - amministratore (non presente in `meta/accessi.utenti`) senza assegnazioni → vede tutto;
 - altro account **non presente** nelle assegnazioni → non vede nessuna villa ("Nessuna villa assegnata");
 - account presente → vede solo le ville intere assegnate e le singole prenotazioni assegnate
   (più le spese generali di quelle ville);
-- account con nessuna villa e nessuna prenotazione → messaggio "Nessuna villa assegnata".
-È un filtro per fare ordine, non una protezione dei dati: le regole Firestore restano uguali.
-Le modifiche agli scontrini usano sempre `update`, così l'array `storico` scritto da Summer Database non si perde.
+- account con nessuna villa e nessuna prenotazione → "Nessuna villa assegnata".
 
-## Configurazione di Firebase
+Vale per il modulo di inserimento, per Inseriti e per le Schede prenotazioni.
+È un filtro per fare ordine, non una protezione dei dati.
 
-1. **Regole**: in Firestore → Regole incolla il contenuto di `firestore.rules`. Contiene già anche le regole
-   dell'altra app e aggiunge `scontrini` e `scontrini_foto`. Poi fai clic su Pubblica.
-2. **Accesso**: si entra solo con **Accedi con Google** (le regole richiedono un'email verificata).
-   In Authentication → Metodo di accesso, il provider **Google** deve essere attivo.
-3. **Configurazione**: in ⚙️ Impostazioni progetto → Le tue app copia `firebaseConfig` (lo stesso dell'altra app)
-   nel file `firebase-config.js`.
+## Regole Firestore
 
-## Prova sul Mac
+Le regole sono gestite da Summer Database (documento di Progetto `claude/vincoli-firebase.md`).
+Devono sempre mantenere le righe di `scontrini` e `scontrini_foto`. `firestore.rules` qui è solo un riferimento storico.
 
-Dalla cartella del progetto, apri il Terminale e lancia:
+## Pubblicazione
 
-```
-python3 -m http.server 8000
-```
-
-Poi apri http://localhost:8000. Non funziona aprendo il file con doppio clic, perché serve un indirizzo web.
-
-## Pubblicazione su GitHub Pages (per usarle da cellulare e Mac)
-
-1. Crea un repository su GitHub (es. `app-ville`) e carica tutti i file di questa cartella.
-2. Nel repository: **Settings → Pages** → Source: *Deploy from a branch* → branch `main`, cartella `/ (root)` → Save.
-3. Dopo un minuto le app saranno su `https://TUO-UTENTE.github.io/app-ville/`.
-4. In Firebase: **Authentication → Settings → Domini autorizzati** → aggiungi `TUO-UTENTE.github.io`.
-
-**Installazione:**
-- iPhone (Safari): apri `…/scontrini/` → Condividi → **Aggiungi alla schermata Home**. Ripeti per `…/consulta/`.
+GitHub Pages dal branch `main`, cartella principale: https://paolobellina-lab.github.io/scontrini-ville/
+- iPhone (Safari): apri `…/scontrini/` → Condividi → **Aggiungi alla schermata Home**.
 - Android (Chrome): menu ⋮ → **Installa app**.
-- Mac (Chrome): icona di installazione nella barra dell'indirizzo; con Safari: File → **Aggiungi al Dock**.
+
+Prova in locale: dalla cartella del progetto `python3 -m http.server 8000`, poi apri http://localhost:8000.
 
 ## Uso
 
-1. Nell'app **Scontrini**, scheda *Ville e prenotazioni*: aggiungi le ville; tocca una villa per inserire le sue prenotazioni.
-2. Scheda *Nuovo*: scatta la foto, scrivi data e importo, scegli la villa. **La prenotazione si seleziona da sola**
-   se la data dello scontrino cade tra check-in e check-out (estremi inclusi); puoi sempre cambiarla a mano
+1. *Scontrini → Nuovo*: scatta la foto, scrivi data e importo, scegli la villa. **La prenotazione si seleziona da sola**
+   se la data dello scontrino cade tra check-in e check-out (estremi inclusi); puoi cambiarla a mano
    o scegliere "spesa generale della villa".
-3. Senza rete lo scontrino viene salvato sul telefono e inviato appena torna la connessione.
-4. Nell'app **Spese Ville** trovi tutto raggruppato per villa e prenotazione, con il totale per categoria.
-   Puoi filtrare per villa, periodo e testo, vedere e scaricare la foto, esportare un CSV che si apre con Excel e stampare.
+2. *Scontrini → Inseriti*: tutti gli scontrini, filtrabili per villa e prenotazione, con il totale delle spese.
+3. *Schede prenotazioni*: le prenotazioni assegnate, per periodo (passate, questa settimana, prossima settimana,
+   prossime 2/3/4 settimane, tutte), con servizi e note; da ogni scheda si aggiunge uno scontrino già collegato.
+4. Senza rete lo scontrino viene salvato sul telefono e inviato appena torna la connessione.

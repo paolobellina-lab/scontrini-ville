@@ -56,21 +56,31 @@ export const fotoPren = (p) => (p ? { cliente: p.ospite, from: p.checkIn, to: p.
 export function trovaPren(s, prenotazioni) {
   if (!s.prenotazioneId && !s.prenotazione) return null;
   const snap = s.prenotazione;
+  // 1) stessa prenotazione (ID) della stessa villa: resta collegata anche se le sue date cambiano
   const perId = prenotazioni.find((p) => p.id === s.prenotazioneId && p.villaId === s.villaId);
-  if (perId && (!snap || perId.checkIn === snap.from)) return perId;
+  if (perId) return perId;
+  // 2) stessa villa con le date della copia salvata nello scontrino; 3) altrimenti la copia
   if (snap) {
     const perDate = prenotazioni.find((p) => p.villaId === s.villaId && p.checkIn === snap.from && p.checkOut === snap.to);
     if (perDate) return perDate;
     return { id: "old:" + snap.from + snap.to, villaId: s.villaId, ospite: snap.cliente || "Prenotazione",
       checkIn: snap.from, checkOut: snap.to, nonInCalendario: true };
   }
-  return perId || null;
+  return null;
 }
 
+/* Categorie proposte nel menu dell'app Scontrini (stesso elenco di Summer Database,
+   tranne "Restituzione deposito sicurezza", che si inserisce solo da Summer Database). */
 export const CATEGORIE = [
   "Pulizie", "Manutenzione", "Lavanderia", "Spesa e forniture", "Utenze",
-  "Giardino e piscina", "Benvenuto ospiti", "Commissioni e tasse", "Altro"
+  "Giardino e piscina", "Benvenuto ospiti", "Commissioni e tasse", "Danni villa", "Altro"
 ];
+/* Denaro restituito al cliente, non una spesa della villa: l'importo è salvato positivo,
+   si mostra con il meno ed è escluso da tutti i totali delle spese. */
+export const CAT_RESTITUZIONE = "Restituzione deposito sicurezza";
+export const isRestituzione = (s) => s?.categoria === CAT_RESTITUZIONE;
+export const importoSpesa = (s) => (isRestituzione(s) ? 0 : Number(s?.importo) || 0);
+export const importoMostrato = (s) => (isRestituzione(s) ? "−" + euro(s.importo) : euro(s?.importo));
 
 /* ---------- Login ---------- */
 export function setupAuth({ onLogin, onLogout }) {
@@ -103,7 +113,7 @@ export function setupAuth({ onLogin, onLogout }) {
 
   /* Prima di mostrare l'app verifico che l'account sia abilitato.
      1) Le regole Firestore negano la lettura a chi non è amministratore né in meta/accessi.emails.
-     2) Chi è in meta/accessi.utenti deve avere "scontrini" nel campo app (vale anche per Spese Ville).
+     2) Chi è in meta/accessi.utenti deve avere "scontrini" nel campo app.
         Chi non è in elenco è un amministratore ed entra sempre. meta/accessi qui si legge soltanto. */
   const APP = "scontrini";
   const MSG = "messaggio-accesso-app-ville";
@@ -234,8 +244,12 @@ export function listenDoc(col, id, cb) {
 }
 
 /* ---------- Utilità ---------- */
-const fmtEuro = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
-export const euro = (n) => fmtEuro.format(Number(n) || 0);
+/* Formato italiano con il punto delle migliaia sempre presente (1.234,50 €, anche sotto i 10.000) */
+export const euro = (n) => {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  const [int, dec] = Math.abs(v).toFixed(2).split(".");
+  return (v < 0 ? "−" : "") + int.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + dec + " €";
+};
 
 const daIso = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 export const dataIt = (s) => (s ? daIso(s).toLocaleDateString("it-IT") : "");

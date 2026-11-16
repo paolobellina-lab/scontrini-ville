@@ -129,7 +129,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CATEGORIE, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CATEGORIE, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -141,7 +141,13 @@ let utentiAccessi = [], caricati = {};
 let serviziExtra = []; // servizi aggiunti in Summer Database (meta/settings.servizi)
 let editId = null, fotoNuova = null, prenManuale = false;
 
-f.categoria.innerHTML = CATEGORIE.map((c) => `<option>${c}</option>`).join("");
+/* Menu categorie: l'elenco standard; una categoria diversa (es. di scontrini vecchi) si aggiunge solo
+   quando si modifica uno scontrino che ce l'ha, così salvando non cambia. */
+function menuCategorie(extra) {
+  const l = extra && !CATEGORIE.includes(extra) ? [...CATEGORIE, extra] : CATEGORIE;
+  f.categoria.innerHTML = l.map((c) => `<option>${esc(c)}</option>`).join("");
+}
+menuCategorie();
 
 setupAuth({
   onLogin(u) {
@@ -317,6 +323,7 @@ f.onsubmit = async (e) => {
 function resetForm() {
   const villa = f.villaId.value;
   editId = null; fotoNuova = null; prenManuale = false;
+  menuCategorie();
   f.reset();
   f.villaId.value = villa; // resta selezionata l'ultima villa usata
   f.data.value = oggi();
@@ -380,7 +387,7 @@ function renderLista() {
   const righe = tutti
     .filter((s) => (!vid || s.villaId === vid) && (!pid || chiavePren(s) === pid))
     .sort((a, b) => b.data.localeCompare(a.data) || (b.creatoIl?.seconds || 0) - (a.creatoIl?.seconds || 0));
-  const tot = righe.reduce((t, s) => t + (Number(s.importo) || 0), 0);
+  const tot = righe.reduce((t, s) => t + importoSpesa(s), 0); // la restituzione del deposito non è una spesa
   $("fil-info").textContent = `${righe.length} ${righe.length === 1 ? "scontrino" : "scontrini"} · tocca per modificare`;
   $("fil-tot").textContent = righe.length ? euro(tot) : "";
   $("lista").innerHTML = righe.length ? righe.map((s) => {
@@ -390,7 +397,7 @@ function renderLista() {
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
         <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
-      <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
+      <div class="amount${isRestituzione(s) ? " rest" : ""}">${importoMostrato(s)}${isRestituzione(s) ? "<small>restituito al cliente</small>" : s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
   }).join("") : `<p class="muted center">${tutti.length ? "Nessuno scontrino con questi filtri." : "Ancora nessuno scontrino."}</p>`;
 }
@@ -398,7 +405,9 @@ $("lista").onclick = async (e) => {
   const b = e.target.closest("[data-s]");
   const s = b && tutti.find((x) => x.id === b.dataset.s);
   if (!s) return;
+  if (isRestituzione(s)) return toast("La restituzione del deposito si gestisce solo da Summer Database");
   editId = s.id; fotoNuova = null; prenManuale = true;
+  menuCategorie(s.categoria);
   f.villaId.value = s.villaId;
   f.data.value = s.data;
   f.importo.value = String(s.importo).replace(".", ",");
@@ -464,9 +473,9 @@ function renderSchede() {
   const spese = new Map();
   tutti.filter(scontrinoVisibile).forEach((s) => {
     const p = trovaPren(s, pren);
-    if (!p) return;
+    if (!p || isRestituzione(s)) return; // la restituzione del deposito non conta tra le spese
     const x = spese.get(p.id) || { n: 0, tot: 0 };
-    x.n++; x.tot += Number(s.importo) || 0;
+    x.n++; x.tot += importoSpesa(s);
     spese.set(p.id, x);
   });
 
