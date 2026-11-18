@@ -84,13 +84,19 @@ export const CATEGORIE = [
   "Pulizie", "Manutenzione", "Lavanderia", "Spesa e forniture", "Utenze",
   "Giardino e piscina", "Benvenuto ospiti", "Commissioni e tasse", "Altro"
 ];
-/* Denaro restituito al cliente, non una spesa della villa: l'importo è salvato positivo,
-   si mostra con il meno ed è escluso da tutti i totali delle spese. */
-export const CAT_RESTITUZIONE = "Restituzione deposito sicurezza";
 export const CAT_DANNI = "Danni villa";
-/* Quanto pagato davvero al proprietario: spesa normale (entra nei totali), mai "aggiuntiva".
-   Dato economico riservato: si inserisce da Summer Database e non è nel menu dell'app Scontrini. */
+/* Categorie riservate (decisione del proprietario, 18/11/2026): si inseriscono, modificano e cancellano SOLO da
+   Summer Database. L'app Scontrini non le propone nel menu, non le mostra (né in Inseriti né nelle Schede
+   prenotazioni), le esclude da conteggi e totali e non le tocca.
+   - Affitto proprietario: quanto pagato davvero al proprietario (spesa, mai aggiuntiva);
+   - Restituzione deposito sicurezza: denaro restituito al cliente (importo salvato positivo);
+   - Addebito cliente / Addebito proprietario: entrate (quanto si fa pagare al cliente o al proprietario). */
 export const CAT_AFFITTO = "Affitto proprietario";
+export const CAT_RESTITUZIONE = "Restituzione deposito sicurezza";
+export const CAT_ADDEBITO_CLIENTE = "Addebito cliente";
+export const CAT_ADDEBITO_PROPRIETARIO = "Addebito proprietario";
+export const CATEGORIE_RISERVATE = [CAT_AFFITTO, CAT_RESTITUZIONE, CAT_ADDEBITO_CLIENTE, CAT_ADDEBITO_PROPRIETARIO];
+export const isRiservata = (s) => CATEGORIE_RISERVATE.includes(s?.categoria);
 
 /* Elenco delle categorie a partire da meta/settings (null = non leggibile → valori predefiniti). */
 export function catalogoCategorie(settings) {
@@ -103,9 +109,11 @@ export function catalogoCategorie(settings) {
   ];
   const lista = Array.isArray(settings?.categorieSpese) ? settings.categorieSpese.map((x) => String(x || "").trim()).filter(Boolean) : [];
   const altre = (lista.length ? lista : CATEGORIE)
-    .filter((c) => ![CAT_DANNI, CAT_AFFITTO, CAT_RESTITUZIONE].includes(c));
+    .filter((c) => c !== CAT_DANNI && !CATEGORIE_RISERVATE.includes(c));
   const aggiuntive = new Set(Array.isArray(settings?.categorieAggiuntive) ? settings.categorieAggiuntive : []);
-  return { servizi, altre, aggiuntive };
+  // spese a carico del proprietario: spese normali (aggiuntiva = false), mostrate a parte in Summer Database
+  const proprietario = new Set(Array.isArray(settings?.categorieProprietario) ? settings.categorieProprietario : []);
+  return { servizi, altre, aggiuntive, proprietario };
 }
 /* Chiave del servizio di uno scontrino: il campo servizio, oppure una categoria uguale al nome di un servizio. */
 export function servizioDi(s, cat) {
@@ -116,21 +124,22 @@ export function servizioDi(s, cat) {
    - servizio: offerto se la prenotazione dello scontrino ha quel servizio, altrimenti aggiuntivo
      (anche per le spese generali, senza prenotazione);
    - altre categorie: aggiuntiva se è in categorieAggiuntive;
-   - Danni villa sì; Affitto proprietario e Restituzione no;
+   - Danni villa sì; le categorie riservate (Affitto proprietario, Restituzione, Addebiti) no;
    - categoria sconosciuta (rinominata o tolta): vale il campo aggiuntiva salvato.
    p = prenotazione dello scontrino già normalizzata (normPren), oppure null. */
 export function calcolaAggiuntiva(s, p, cat) {
   const c = s?.categoria;
-  if (c === CAT_AFFITTO || c === CAT_RESTITUZIONE) return false;
+  if (CATEGORIE_RISERVATE.includes(c)) return false;
   if (c === CAT_DANNI) return true;
   const k = servizioDi(s, cat);
   if (k) return !(p && Array.isArray(p.servizi) && p.servizi.includes(k));
-  if (cat.altre.includes(c)) return cat.aggiuntive.has(c);
+  if (cat.altre.includes(c)) return !cat.proprietario.has(c) && cat.aggiuntive.has(c);
   return typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : false;
 }
-export const isRestituzione = (s) => s?.categoria === CAT_RESTITUZIONE;
-export const importoSpesa = (s) => (isRestituzione(s) ? 0 : Number(s?.importo) || 0);
-export const importoMostrato = (s) => (isRestituzione(s) ? "−" + euro(s.importo) : euro(s?.importo));
+/* Importo che conta nei totali delle spese dell'app (le categorie riservate non sono mai mostrate né contate) */
+export const importoSpesa = (s) => (isRiservata(s) ? 0 : Number(s?.importo) || 0);
+/* Categoria a carico del proprietario (meta/settings.categorieProprietario) */
+export const aCaricoProprietario = (s, cat) => !s?.servizio && cat.proprietario.has(s?.categoria);
 
 /* ---------- Login ---------- */
 export function setupAuth({ onLogin, onLogout }) {

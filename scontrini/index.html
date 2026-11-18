@@ -131,7 +131,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -143,13 +143,16 @@ let utentiAccessi = [], caricati = {};
 let catalogo = catalogoCategorie(null); // categorie e servizi da meta/settings (predefiniti finché non si legge)
 let editId = null, fotoNuova = null, prenManuale = false;
 
-/* Menu categorie a gruppi (Servizi offerti / Altre categorie / Danni villa), costruito da meta/settings.
+/* Menu categorie in due gruppi, come in Summer Database: "Non aggiuntive" e "Aggiuntive".
+   I servizi stanno nell'uno o nell'altro secondo la prenotazione scelta (servizio previsto = non aggiuntiva),
+   quindi il menu si riordina quando cambia la prenotazione. Le categorie riservate non ci sono mai.
    Valori: "s:<chiave servizio>" oppure "c:<nome categoria>".
    extra = scontrino in modifica: se la sua categoria non è più in elenco, viene aggiunta solo per lui. */
 let fuoriElenco = null; // { value, label, aggiuntiva } dello scontrino in modifica con categoria fuori elenco
 function menuCategorie(extra) {
   const prima = f.categoria.value;
-  fuoriElenco = null;
+  // ricostruendo il menu (es. cambio prenotazione) si tiene la categoria fuori elenco già scelta
+  fuoriElenco = !extra && fuoriElenco && prima === fuoriElenco.value ? fuoriElenco : null;
   if (extra) {
     const k = servizioDi(extra, catalogo);
     const val = k ? "s:" + k : "c:" + extra.categoria;
@@ -158,10 +161,16 @@ function menuCategorie(extra) {
     if (!esiste) fuoriElenco = { value: val, label: extra.categoria, servizio: k, aggiuntiva: extra.aggiuntiva };
   }
   const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
+  const p = pren.find((x) => x.id === f.prenotazioneId.value) || null;
+  const voci = [
+    ...catalogo.servizi.map((x) => ({ v: "s:" + x.key, t: x.label, agg: calcolaAggiuntiva({ categoria: x.label, servizio: x.key }, p, catalogo) })),
+    ...catalogo.altre.map((c) => ({ v: "c:" + c, t: catalogo.proprietario.has(c) ? `${c} · a carico del proprietario` : c, agg: calcolaAggiuntiva({ categoria: c }, p, catalogo) })),
+    { v: "c:" + CAT_DANNI, t: CAT_DANNI, agg: true },
+  ];
+  const gruppo = (nome, l) => (l.length ? `<optgroup label="${nome}">${l.map((x) => opt(x.v, x.t)).join("")}</optgroup>` : "");
   f.categoria.innerHTML =
-    (catalogo.servizi.length ? `<optgroup label="Servizi offerti">${catalogo.servizi.map((x) => opt("s:" + x.key, x.label)).join("")}</optgroup>` : "") +
-    `<optgroup label="Altre categorie">${catalogo.altre.map((c) => opt("c:" + c, c)).join("")}</optgroup>` +
-    `<optgroup label="Danni">${opt("c:" + CAT_DANNI, CAT_DANNI)}</optgroup>` +
+    gruppo("Non aggiuntive", voci.filter((x) => !x.agg)) +
+    gruppo("Aggiuntive", voci.filter((x) => x.agg)) +
     (fuoriElenco ? `<optgroup label="Categoria di questo scontrino">${opt(fuoriElenco.value, fuoriElenco.label)}</optgroup>` : "");
   const voglio = extra ? (fuoriElenco ? fuoriElenco.value : (servizioDi(extra, catalogo) ? "s:" + servizioDi(extra, catalogo) : "c:" + extra.categoria)) : prima;
   f.categoria.value = [...f.categoria.options].some((o) => o.value === voglio) ? voglio : f.categoria.options[0]?.value || "";
@@ -187,11 +196,12 @@ function aggiornaHintCategoria() {
     ? (agg ? (p ? "Servizio non previsto in questa prenotazione: spesa aggiuntiva, da addebitare al cliente."
                 : "Senza prenotazione il servizio conta come spesa aggiuntiva.")
            : "Servizio offerto in questa prenotazione.")
-    : agg ? "Spesa aggiuntiva: da addebitare al cliente o trattenere dal deposito." : "";
+    : agg ? "Spesa aggiuntiva: da addebitare al cliente o trattenere dal deposito."
+    : aCaricoProprietario(sc, catalogo) ? "Spesa a carico del proprietario." : "";
 }
 menuCategorie();
 f.categoria.addEventListener("change", aggiornaHintCategoria);
-f.prenotazioneId.addEventListener("change", aggiornaHintCategoria);
+f.prenotazioneId.addEventListener("change", () => { menuCategorie(); aggiornaHintCategoria(); });
 
 setupAuth({
   onLogin(u) {
@@ -308,6 +318,7 @@ function autoPren() {
   $("pren-hint").textContent = prenManuale ? "" :
     p ? "Scelta in automatico: prenotazione in corso nella data dello scontrino." :
     f.villaId.value && f.data.value ? "Nessuna prenotazione in corso in quella data." : "";
+  menuCategorie();
   aggiornaHintCategoria();
 }
 f.villaId.onchange = () => { prenManuale = false; renderPrenSelect(); };
@@ -401,7 +412,8 @@ $("elimina").onclick = () => {
 const GEN = "__generale";
 const chiavePren = (s) => trovaPren(s, pren)?.id || GEN;
 
-const visibili = () => tutti.filter(scontrinoVisibile);
+// le categorie riservate a Summer Database (Affitto proprietario, Restituzione, Addebiti) non si mostrano mai
+const visibili = () => tutti.filter((s) => !isRiservata(s) && scontrinoVisibile(s));
 function renderFiltri() {
   const tutti = visibili();
   const fv = $("fil-villa"), fp = $("fil-pren");
@@ -440,7 +452,7 @@ function renderLista() {
   const righe = tutti
     .filter((s) => (!vid || s.villaId === vid) && (!pid || chiavePren(s) === pid))
     .sort((a, b) => b.data.localeCompare(a.data) || (b.creatoIl?.seconds || 0) - (a.creatoIl?.seconds || 0));
-  const tot = righe.reduce((t, s) => t + importoSpesa(s), 0); // la restituzione del deposito non è una spesa
+  const tot = righe.reduce((t, s) => t + importoSpesa(s), 0);
   $("fil-info").textContent = `${righe.length} ${righe.length === 1 ? "scontrino" : "scontrini"} · tocca per modificare`;
   $("fil-tot").textContent = righe.length ? euro(tot) : "";
   $("lista").innerHTML = righe.length ? righe.map((s) => {
@@ -448,9 +460,9 @@ function renderLista() {
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
-        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""}${aCaricoProprietario(s, catalogo) ? ' <span class="tag">a carico del proprietario</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
-      <div class="amount${isRestituzione(s) ? " rest" : ""}">${importoMostrato(s)}${isRestituzione(s) ? "<small>restituito al cliente</small>" : s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
+      <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
   }).join("") : `<p class="muted center">${tutti.length ? "Nessuno scontrino con questi filtri." : "Ancora nessuno scontrino."}</p>`;
 }
@@ -458,7 +470,7 @@ $("lista").onclick = async (e) => {
   const b = e.target.closest("[data-s]");
   const s = b && tutti.find((x) => x.id === b.dataset.s);
   if (!s) return;
-  if (isRestituzione(s)) return toast("La restituzione del deposito si gestisce solo da Summer Database");
+  if (isRiservata(s)) return toast("Questa voce si gestisce solo da Summer Database");
   editId = s.id; fotoNuova = null; prenManuale = true;
   menuCategorie(s);
   f.villaId.value = s.villaId;
@@ -469,6 +481,7 @@ $("lista").onclick = async (e) => {
   renderPrenSelect();
   const pTrov = trovaPren(s, pren);
   f.prenotazioneId.value = pTrov && !pTrov.nonInCalendario ? pTrov.id : "";
+  menuCategorie();
   aggiornaHintCategoria();
   if (pTrov?.nonInCalendario) document.getElementById("pren-hint").textContent =
     `La prenotazione originale (${pTrov.ospite}) non è più in calendario: scegline una o lascia "spesa generale".`;
@@ -525,9 +538,9 @@ function renderSchede() {
 
   // scontrini collegati a ciascuna prenotazione
   const spese = new Map();
-  tutti.filter(scontrinoVisibile).forEach((s) => {
+  tutti.filter((s) => !isRiservata(s) && scontrinoVisibile(s)).forEach((s) => {
     const p = trovaPren(s, pren);
-    if (!p || isRestituzione(s)) return; // la restituzione del deposito non conta tra le spese
+    if (!p) return;
     const x = spese.get(p.id) || { n: 0, tot: 0 };
     x.n++; x.tot += importoSpesa(s);
     spese.set(p.id, x);
