@@ -279,3 +279,11 @@ label small { display: block; margin-top: 6px; text-transform: none; letter-spac
 .campo { display: block; font-size: .64rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 /* Restituzione del deposito di sicurezza: importo con il meno, non è una spesa */
 .amount.rest { color: var(--teal); }
+/* Casella "Spesa per servizio aggiuntivo" */
+label.check { display: flex; gap: 12px; align-items: flex-start; text-transform: none; letter-spacing: normal; font-size: .95rem; color: var(--ink); cursor: pointer; }
+label.check input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+label.check small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+label.check:has(input:disabled) { opacity: .5; cursor: default; }
+.tag { display: inline-block; font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--accent); color: var(--accent-dark); border-radius: var(--radius); vertical-align: 1px; }
+/* Stato "Vuoto per pieno" (stesso arancione di Summer Database) */
+.vuoto { color: #e9801c; }

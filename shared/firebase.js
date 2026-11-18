@@ -39,7 +39,9 @@ export const normVilla = (v) => ({ ...v, nome: nomeVilla(v) });
 /* Solo i campi che servono a queste app: i prezzi (prezzoVendita, prezzoAcquisto, prezzi dei servizi),
    lo stato e il colore della prenotazione non vengono copiati. */
 export const normPren = (b) => ({
-  id: b.id, villaId: b.villaId, ospite: (b.cliente || "").trim() || "Prenotazione senza nome",
+  id: b.id, villaId: b.villaId,
+  ospite: (b.cliente || "").trim() || (b.status === "vuoto" ? NOME_STATO.vuoto : "Prenotazione senza nome"),
+  vuoto: b.status === "vuoto",
   cliente: (b.cliente || "").trim(),
   checkIn: b.from, checkOut: b.to, status: b.status || "", note: b.note || "",
   early: !!b.earlyIn, late: !!b.lateOut,
@@ -78,6 +80,14 @@ export const CATEGORIE = [
 /* Denaro restituito al cliente, non una spesa della villa: l'importo è salvato positivo,
    si mostra con il meno ed è escluso da tutti i totali delle spese. */
 export const CAT_RESTITUZIONE = "Restituzione deposito sicurezza";
+export const CAT_DANNI = "Danni villa";
+/* Quanto pagato davvero al proprietario: spesa normale (entra nei totali), mai "aggiuntiva".
+   Dato economico riservato: si inserisce da Summer Database e non è nel menu dell'app Scontrini. */
+export const CAT_AFFITTO = "Affitto proprietario";
+/* Campo facoltativo scontrini.aggiuntiva: true = spesa per un servizio aggiuntivo richiesto durante il soggiorno
+   (da addebitare al cliente o trattenere dal deposito). Se manca, "Danni villa" conta come aggiuntiva. */
+export const isAggiuntiva = (s) =>
+  s?.categoria === CAT_AFFITTO ? false : typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : s?.categoria === CAT_DANNI;
 export const isRestituzione = (s) => s?.categoria === CAT_RESTITUZIONE;
 export const importoSpesa = (s) => (isRestituzione(s) ? 0 : Number(s?.importo) || 0);
 export const importoMostrato = (s) => (isRestituzione(s) ? "−" + euro(s.importo) : euro(s?.importo));
@@ -270,15 +280,22 @@ export function parseImporto(v) {
   return Math.round(parseFloat(v) * 100) / 100;
 }
 
-export const labelPren = (p) =>
-  `${p.ospite} · ${dataBreve(p.checkIn)} → ${dataBreve(p.checkOut)}${p.status && p.status !== "occupato" ? " (" + p.status + ")" : ""}`;
+/* Nomi degli stati da mostrare. "vuoto" = Vuoto per pieno: villa pagata al proprietario ma non ancora affittata
+   (periodo di acquisto, di solito senza cliente). Colore in Summer Database: arancione #e9801c. */
+export const NOME_STATO = { vuoto: "Vuoto per pieno" };
+export const COLORE_VUOTO = "#e9801c";
+export const labelPren = (p) => {
+  const st = p.status && p.status !== "occupato" ? (NOME_STATO[p.status] || p.status) : "";
+  return `${p.ospite} · ${dataBreve(p.checkIn)} → ${dataBreve(p.checkOut)}${st && st !== p.ospite ? " (" + st + ")" : ""}`;
+};
 
 /* La prenotazione di quella villa in corso nella data indicata (check-in e check-out inclusi). */
 export function bookingFor(prenotazioni, villaId, data) {
   if (!villaId || !data) return null;
   return prenotazioni
     .filter((p) => p.villaId === villaId && p.checkIn <= data && data <= p.checkOut)
-    .sort((a, b) => a.checkIn.localeCompare(b.checkIn))[0] || null;
+    // un affitto del cliente vince su un "Vuoto per pieno" che lo contiene; poi la prenotazione iniziata prima
+    .sort((a, b) => (a.vuoto === b.vuoto ? 0 : a.vuoto ? 1 : -1) || a.checkIn.localeCompare(b.checkIn))[0] || null;
 }
 
 /* Ridimensiona e comprime la foto (resta sotto il limite di 1 MB di un documento Firestore). */

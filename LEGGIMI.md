@@ -17,12 +17,16 @@ si consulta ora solo in Summer Database.
 - `villas` e `bookings`: **gestite da Summer Database**. L'app Scontrini le legge soltanto.
   Dalle prenotazioni usa solo: `villaId`, `cliente`, `from`, `to`, `status` (solo per l'etichetta nel menu),
   `earlyIn`, `lateOut`, `pulizia`, `cuoco`, `transfer`, `servizi`, `serviziDett.{chiave}.note`, `note`.
-  **Non mostra mai i dati economici**: `prezzoVendita`, `prezzoAcquisto`, `deposito` (deposito di sicurezza),
+  **Non mostra mai i dati economici né quelli interni**: `prezzoVendita`, `prezzoAcquisto`, `deposito` (deposito di sicurezza),
+  `pagatoDal`, `pagatoAl`, `acquistoDi`,
   i prezzi dei servizi e `serviziDett.*.incluso`; nemmeno stato e colore nelle schede.
   `normPren` in `shared/firebase.js` copia solo i campi consentiti.
 - `meta/settings.servizi`: nomi dei servizi aggiunti in Summer Database.
 - `scontrini`: `villaId`, `prenotazioneId`, `prenotazione` (copia di cliente e date), `data`, `importo`, `categoria`,
-  `motivo`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
+  `motivo`, `aggiuntiva`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
+  `aggiuntiva` (bool, facoltativo, dal 17/11/2026): `true` = spesa per un servizio aggiuntivo richiesto durante il soggiorno
+  (da addebitare al cliente o trattenere dal deposito); `false`/assente = servizi inclusi nella prenotazione.
+  Se manca, "Danni villa" conta come aggiuntiva (`isAggiuntiva`).
 - `scontrini_foto`: la foto compressa, con lo stesso ID dello scontrino. Le foto stanno in Firestore, non in Storage.
 
 Le modifiche agli scontrini usano sempre `update`, così l'array `storico` di Summer Database non si perde.
@@ -36,9 +40,27 @@ su un'altra prenotazione o eliminati.
 3. Altrimenti si usa la copia, segnata "non più in calendario".
 4. Nessun `prenotazioneId` e nessuna copia → "spesa generale della villa".
 
+### Stato "Vuoto per pieno" (dal 18/11/2026)
+`status: "vuoto"`: villa pagata al proprietario ma non ancora affittata (periodo di acquisto, di solito senza cliente).
+Gli affitti dei clienti in quei giorni sono prenotazioni separate (`acquistoDi` = id del vuoto).
+- Senza cliente si mostra "Vuoto per pieno" al posto del nome (nelle schede in arancione `#e9801c`, come in Summer Database);
+  nel menu delle prenotazioni l'etichetta è "Vuoto per pieno".
+- Gli scontrini si possono collegare anche a un vuoto (spese della villa in quei giorni).
+- Scelta automatica in base alla data: se la data cade sia nell'affitto di un cliente sia nel vuoto che lo contiene,
+  viene proposta la prenotazione del cliente.
+
 ### Categorie (`CATEGORIE` in `shared/firebase.js`)
-Pulizie, Manutenzione, Lavanderia, Spesa e forniture, Utenze, Giardino e piscina, Benvenuto ospiti,
-Commissioni e tasse, **Danni villa** (spesa normale), Altro.
+Menu dell'app Scontrini: Pulizie, Manutenzione, Lavanderia, Spesa e forniture, Utenze, Giardino e piscina,
+Benvenuto ospiti, Commissioni e tasse, **Danni villa** (spesa normale), Altro.
+
+Elenco completo in Summer Database: in più **Affitto proprietario** e **Restituzione deposito sicurezza**.
+
+Casella **"Spesa per servizio aggiuntivo"** nel modulo (campo `aggiuntiva`): si spunta da sola scegliendo "Danni villa",
+si può cambiare a mano; nell'elenco Inseriti compare l'etichetta "aggiuntiva". Si salva con `update`.
+
+**Affitto proprietario** (`CAT_AFFITTO`): quanto pagato davvero al proprietario per la prenotazione. Spesa normale
+(entra nei totali), `aggiuntiva` sempre `false` (casella disattivata). È un dato economico riservato: si inserisce da
+Summer Database e non è nel menu; uno scontrino che ce l'ha si mostra con la sua categoria e la mantiene in modifica.
 
 **Restituzione deposito sicurezza** (`CAT_RESTITUZIONE`):
 - si inserisce solo da Summer Database e non è proposta nel menu dell'app Scontrini;

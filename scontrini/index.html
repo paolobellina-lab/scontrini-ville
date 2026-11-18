@@ -77,6 +77,11 @@
           <small id="pren-hint" class="muted" style="font-weight:400"></small>
         </label>
         <label>Categoria<select name="categoria"></select></label>
+        <label class="check">
+          <input type="checkbox" name="aggiuntiva">
+          <span>Spesa per servizio aggiuntivo
+            <small>Richiesto durante il soggiorno: da addebitare al cliente o trattenere dal deposito.</small></span>
+        </label>
         <label>Motivo della spesa
           <textarea name="motivo" rows="3" required placeholder="Es. pulizia finale dopo la partenza degli ospiti"></textarea>
         </label>
@@ -129,7 +134,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CATEGORIE, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CATEGORIE, CAT_DANNI, CAT_AFFITTO, isAggiuntiva, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -148,6 +153,16 @@ function menuCategorie(extra) {
   f.categoria.innerHTML = l.map((c) => `<option>${esc(c)}</option>`).join("");
 }
 menuCategorie();
+/* Casella "servizio aggiuntivo": si spunta da sola con "Danni villa"; con "Affitto proprietario" è sempre no. */
+function statoAggiuntiva() {
+  const affitto = f.categoria.value === CAT_AFFITTO;
+  f.aggiuntiva.disabled = affitto;
+  if (affitto) f.aggiuntiva.checked = false;
+}
+f.categoria.addEventListener("change", () => {
+  if (f.categoria.value === CAT_DANNI) f.aggiuntiva.checked = true;
+  statoAggiuntiva();
+});
 
 setupAuth({
   onLogin(u) {
@@ -295,6 +310,7 @@ f.onsubmit = async (e) => {
   const dati = {
     villaId: f.villaId.value, prenotazioneId: pSel ? pSel.id : null, prenotazione: fotoPren(pSel), data: f.data.value,
     importo, categoria: f.categoria.value, motivo: f.motivo.value.trim(),
+    aggiuntiva: f.categoria.value === CAT_AFFITTO ? false : f.aggiuntiva.checked,
   };
   const ref = editId ? doc(db, "scontrini", editId) : doc(collection(db, "scontrini"));
   const b = writeBatch(db);
@@ -325,6 +341,7 @@ function resetForm() {
   editId = null; fotoNuova = null; prenManuale = false;
   menuCategorie();
   f.reset();
+  statoAggiuntiva();
   f.villaId.value = villa; // resta selezionata l'ultima villa usata
   f.data.value = oggi();
   showPreview(null);
@@ -395,7 +412,7 @@ function renderLista() {
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
-        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)} · ${p ? esc(p.ospite) : "spesa generale"}</span>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${isAggiuntiva(s) ? ' <span class="tag">aggiuntiva</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
       <div class="amount${isRestituzione(s) ? " rest" : ""}">${importoMostrato(s)}${isRestituzione(s) ? "<small>restituito al cliente</small>" : s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
@@ -412,6 +429,8 @@ $("lista").onclick = async (e) => {
   f.data.value = s.data;
   f.importo.value = String(s.importo).replace(".", ",");
   f.categoria.value = s.categoria;
+  f.aggiuntiva.checked = isAggiuntiva(s);
+  statoAggiuntiva();
   f.motivo.value = s.motivo;
   renderPrenSelect();
   const pTrov = trovaPren(s, pren);
@@ -488,7 +507,7 @@ function renderSchede() {
     return `<article class="card scheda">
       <div class="scheda-head">
         <div><span class="eyebrow">${esc(nomeV(p.villaId))}</span>
-          <h3>${p.cliente ? esc(p.cliente) : '<span class="muted">Cliente non indicato</span>'}</h3></div>
+          <h3>${p.cliente ? esc(p.cliente) : p.vuoto ? '<span class="vuoto">Vuoto per pieno</span>' : '<span class="muted">Cliente non indicato</span>'}</h3></div>
         ${inCorso ? '<span class="badge">In corso</span>' : ""}
       </div>
       <div class="scheda-date">
