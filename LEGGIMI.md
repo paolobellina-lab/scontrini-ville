@@ -23,10 +23,10 @@ si consulta ora solo in Summer Database.
   `normPren` in `shared/firebase.js` copia solo i campi consentiti.
 - `meta/settings.servizi`: nomi dei servizi aggiunti in Summer Database.
 - `scontrini`: `villaId`, `prenotazioneId`, `prenotazione` (copia di cliente e date), `data`, `importo`, `categoria`,
-  `motivo`, `aggiuntiva`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
-  `aggiuntiva` (bool, facoltativo, dal 17/11/2026): `true` = spesa per un servizio aggiuntivo richiesto durante il soggiorno
-  (da addebitare al cliente o trattenere dal deposito); `false`/assente = servizi inclusi nella prenotazione.
-  Se manca, "Danni villa" conta come aggiuntiva (`isAggiuntiva`).
+  `motivo`, `servizio`, `aggiuntiva`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
+  `servizio` (chiave del servizio o `null`, dal 18/11/2026) e `aggiuntiva` (bool): `true` = spesa per un servizio aggiuntivo
+  (da addebitare al cliente o trattenere dal deposito); `false` = servizi offerti nella prenotazione.
+  Vedi "Categorie" più sotto per come si calcola.
 - `scontrini_foto`: la foto compressa, con lo stesso ID dello scontrino. Le foto stanno in Firestore, non in Storage.
 
 Le modifiche agli scontrini usano sempre `update`, così l'array `storico` di Summer Database non si perde.
@@ -49,18 +49,31 @@ Gli affitti dei clienti in quei giorni sono prenotazioni separate (`acquistoDi` 
 - Scelta automatica in base alla data: se la data cade sia nell'affitto di un cliente sia nel vuoto che lo contiene,
   viene proposta la prenotazione del cliente.
 
-### Categorie (`CATEGORIE` in `shared/firebase.js`)
-Menu dell'app Scontrini: Pulizie, Manutenzione, Lavanderia, Spesa e forniture, Utenze, Giardino e piscina,
-Benvenuto ospiti, Commissioni e tasse, **Danni villa** (spesa normale), Altro.
+### Categorie (dal 18/11/2026 dalle Impostazioni di Summer Database)
+Il menu Categoria si costruisce da `meta/settings` (`catalogoCategorie` in `shared/firebase.js`), in tre gruppi:
+1. **Servizi offerti**: i servizi delle prenotazioni. Base `pulizia`, `cuoco`, `transfer` (nomi predefiniti
+   "Pulizia finale", "Cuoco", "Transfer"; nome cambiato in `serviziBase[chiave].label`, tolti se `serviziBase[chiave].off`)
+   più `servizi: [{ key, label }]`. Lo scontrino salva `categoria` = nome del servizio e `servizio` = chiave.
+   Uno scontrino senza `servizio` ma con la categoria uguale al nome di un servizio vale lo stesso.
+2. **Altre categorie**: `meta/settings.categorieSpese` (se manca o non si legge: Pulizie, Manutenzione, Lavanderia,
+   Spesa e forniture, Utenze, Giardino e piscina, Benvenuto ospiti, Commissioni e tasse, Altro).
+3. **Danni villa** (fissa).
 
-Elenco completo in Summer Database: in più **Affitto proprietario** e **Restituzione deposito sicurezza**.
+**Affitto proprietario** e **Restituzione deposito sicurezza** esistono ma si inseriscono solo da Summer Database:
+non sono nel menu.
 
-Casella **"Spesa per servizio aggiuntivo"** nel modulo (campo `aggiuntiva`): si spunta da sola scegliendo "Danni villa",
-si può cambiare a mano; nell'elenco Inseriti compare l'etichetta "aggiuntiva". Si salva con `update`.
+**Offerta o aggiuntiva** (`calcolaAggiuntiva`) la decide la categoria (non c'è più la casella):
+- servizio → offerto se la prenotazione dello scontrino ha quel servizio (`bookings.pulizia|cuoco|transfer` vero,
+  oppure `bookings.servizi` contiene la chiave); altrimenti, o senza prenotazione, **aggiuntiva**;
+- altre categorie → aggiuntiva se in `meta/settings.categorieAggiuntive`, altrimenti no;
+- Danni villa → sì; Affitto proprietario e Restituzione → no;
+- categoria sconosciuta (rinominata o tolta dopo l'inserimento) → vale il campo `aggiuntiva` salvato.
 
-**Affitto proprietario** (`CAT_AFFITTO`): quanto pagato davvero al proprietario per la prenotazione. Spesa normale
-(entra nei totali), `aggiuntiva` sempre `false` (casella disattivata). È un dato economico riservato: si inserisce da
-Summer Database e non è nel menu; uno scontrino che ce l'ha si mostra con la sua categoria e la mantiene in modifica.
+Al salvataggio l'app scrive `categoria`, `servizio` (chiave o `null`) e `aggiuntiva` calcolata (`set` per i nuovi,
+`update` per le modifiche, così lo `storico` resta). Sotto il menu una riga dice se la spesa risulta offerta o
+aggiuntiva; nell'elenco Inseriti le aggiuntive hanno l'etichetta "aggiuntiva".
+Rinominare o togliere una categoria in Summer Database non cambia gli scontrini già inseriti: in modifica la loro
+categoria resta (aggiunta al menu solo per quello scontrino).
 
 **Restituzione deposito sicurezza** (`CAT_RESTITUZIONE`):
 - si inserisce solo da Summer Database e non è proposta nel menu dell'app Scontrini;

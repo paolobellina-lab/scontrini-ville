@@ -76,11 +76,8 @@
           <select name="prenotazioneId"></select>
           <small id="pren-hint" class="muted" style="font-weight:400"></small>
         </label>
-        <label>Categoria<select name="categoria"></select></label>
-        <label class="check">
-          <input type="checkbox" name="aggiuntiva">
-          <span>Spesa per servizio aggiuntivo
-            <small>Richiesto durante il soggiorno: da addebitare al cliente o trattenere dal deposito.</small></span>
+        <label>Categoria<select name="categoria"></select>
+          <small id="cat-hint" class="muted" style="font-weight:400"></small>
         </label>
         <label>Motivo della spesa
           <textarea name="motivo" rows="3" required placeholder="Es. pulizia finale dopo la partenza degli ospiti"></textarea>
@@ -134,7 +131,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CATEGORIE, CAT_DANNI, CAT_AFFITTO, isAggiuntiva, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRestituzione, importoSpesa, importoMostrato, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -143,26 +140,58 @@ const f = $("f");
 let user = null, ville = [], pren = [], tutti = [], unsubs = [];
 let assegnazioni = null, vis = null; // vis = null → l'account vede tutto (solo amministratori)
 let utentiAccessi = [], caricati = {};
-let serviziExtra = []; // servizi aggiunti in Summer Database (meta/settings.servizi)
+let catalogo = catalogoCategorie(null); // categorie e servizi da meta/settings (predefiniti finché non si legge)
 let editId = null, fotoNuova = null, prenManuale = false;
 
-/* Menu categorie: l'elenco standard; una categoria diversa (es. di scontrini vecchi) si aggiunge solo
-   quando si modifica uno scontrino che ce l'ha, così salvando non cambia. */
+/* Menu categorie a gruppi (Servizi offerti / Altre categorie / Danni villa), costruito da meta/settings.
+   Valori: "s:<chiave servizio>" oppure "c:<nome categoria>".
+   extra = scontrino in modifica: se la sua categoria non è più in elenco, viene aggiunta solo per lui. */
+let fuoriElenco = null; // { value, label, aggiuntiva } dello scontrino in modifica con categoria fuori elenco
 function menuCategorie(extra) {
-  const l = extra && !CATEGORIE.includes(extra) ? [...CATEGORIE, extra] : CATEGORIE;
-  f.categoria.innerHTML = l.map((c) => `<option>${esc(c)}</option>`).join("");
+  const prima = f.categoria.value;
+  fuoriElenco = null;
+  if (extra) {
+    const k = servizioDi(extra, catalogo);
+    const val = k ? "s:" + k : "c:" + extra.categoria;
+    const esiste = k ? catalogo.servizi.some((x) => x.key === k)
+      : catalogo.altre.includes(extra.categoria) || extra.categoria === CAT_DANNI;
+    if (!esiste) fuoriElenco = { value: val, label: extra.categoria, servizio: k, aggiuntiva: extra.aggiuntiva };
+  }
+  const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
+  f.categoria.innerHTML =
+    (catalogo.servizi.length ? `<optgroup label="Servizi offerti">${catalogo.servizi.map((x) => opt("s:" + x.key, x.label)).join("")}</optgroup>` : "") +
+    `<optgroup label="Altre categorie">${catalogo.altre.map((c) => opt("c:" + c, c)).join("")}</optgroup>` +
+    `<optgroup label="Danni">${opt("c:" + CAT_DANNI, CAT_DANNI)}</optgroup>` +
+    (fuoriElenco ? `<optgroup label="Categoria di questo scontrino">${opt(fuoriElenco.value, fuoriElenco.label)}</optgroup>` : "");
+  const voglio = extra ? (fuoriElenco ? fuoriElenco.value : (servizioDi(extra, catalogo) ? "s:" + servizioDi(extra, catalogo) : "c:" + extra.categoria)) : prima;
+  f.categoria.value = [...f.categoria.options].some((o) => o.value === voglio) ? voglio : f.categoria.options[0]?.value || "";
+}
+/* Categoria scelta nel menu → { categoria, servizio } da salvare */
+function sceltaCategoria() {
+  const v = f.categoria.value || "";
+  if (fuoriElenco && v === fuoriElenco.value) return { categoria: fuoriElenco.label, servizio: fuoriElenco.servizio || null, aggiuntiva: fuoriElenco.aggiuntiva };
+  if (v.startsWith("s:")) {
+    const k = v.slice(2);
+    return { categoria: catalogo.servizi.find((x) => x.key === k)?.label || k, servizio: k };
+  }
+  return { categoria: v.slice(2), servizio: null };
+}
+/* Aggiuntiva per l'elenco: se la prenotazione non è più in calendario (non se ne conoscono i servizi), vale il campo salvato */
+const aggiuntivaDi = (s, p) => p?.nonInCalendario && typeof s.aggiuntiva === "boolean" ? s.aggiuntiva : calcolaAggiuntiva(s, p || null, catalogo);
+/* Riga sotto il menu: offerta o aggiuntiva, secondo categoria e prenotazione scelte */
+function aggiornaHintCategoria() {
+  const sc = sceltaCategoria();
+  const p = pren.find((x) => x.id === f.prenotazioneId.value) || null;
+  const agg = calcolaAggiuntiva(sc, p, catalogo);
+  $("cat-hint").textContent = sc.servizio
+    ? (agg ? (p ? "Servizio non previsto in questa prenotazione: spesa aggiuntiva, da addebitare al cliente."
+                : "Senza prenotazione il servizio conta come spesa aggiuntiva.")
+           : "Servizio offerto in questa prenotazione.")
+    : agg ? "Spesa aggiuntiva: da addebitare al cliente o trattenere dal deposito." : "";
 }
 menuCategorie();
-/* Casella "servizio aggiuntivo": si spunta da sola con "Danni villa"; con "Affitto proprietario" è sempre no. */
-function statoAggiuntiva() {
-  const affitto = f.categoria.value === CAT_AFFITTO;
-  f.aggiuntiva.disabled = affitto;
-  if (affitto) f.aggiuntiva.checked = false;
-}
-f.categoria.addEventListener("change", () => {
-  if (f.categoria.value === CAT_DANNI) f.aggiuntiva.checked = true;
-  statoAggiuntiva();
-});
+f.categoria.addEventListener("change", aggiornaHintCategoria);
+f.prenotazioneId.addEventListener("change", aggiornaHintCategoria);
 
 setupAuth({
   onLogin(u) {
@@ -173,8 +202,11 @@ setupAuth({
       // chi è in meta/accessi.utenti non è amministratore: vede solo ciò che gli è assegnato
       listenDoc("meta", "accessi", (d) => { utentiAccessi = d?.utenti || []; caricati.accessi = true; aggiornaVisibilita(); }),
       listenDoc("meta", "settings", (d) => {
-        serviziExtra = (Array.isArray(d?.servizi) ? d.servizi : []).filter((x) => x && x.key).map((x) => [x.key, x.label || x.key]);
-        renderSchede();
+        catalogo = catalogoCategorie(d); // se meta/settings non si legge, restano le categorie predefinite
+        const inModifica = editId && tutti.find((x) => x.id === editId);
+        const sc = sceltaCategoria();
+        menuCategorie(inModifica ? { ...inModifica, categoria: sc.categoria, servizio: sc.servizio } : null);
+        aggiornaHintCategoria(); renderLista(); renderSchede();
       }),
       listen(COLL.ville, (v) => { ville = v.map(normVilla).sort((a, b) => a.nome.localeCompare(b.nome, "it", { numeric: true })); renderVille(); }),
       listen(COLL.prenotazioni, (p) => {
@@ -276,6 +308,7 @@ function autoPren() {
   $("pren-hint").textContent = prenManuale ? "" :
     p ? "Scelta in automatico: prenotazione in corso nella data dello scontrino." :
     f.villaId.value && f.data.value ? "Nessuna prenotazione in corso in quella data." : "";
+  aggiornaHintCategoria();
 }
 f.villaId.onchange = () => { prenManuale = false; renderPrenSelect(); };
 f.data.onchange = () => { prenManuale = false; autoPren(); };
@@ -309,9 +342,13 @@ f.onsubmit = async (e) => {
   const pSel = pren.find((p) => p.id === f.prenotazioneId.value);
   const dati = {
     villaId: f.villaId.value, prenotazioneId: pSel ? pSel.id : null, prenotazione: fotoPren(pSel), data: f.data.value,
-    importo, categoria: f.categoria.value, motivo: f.motivo.value.trim(),
-    aggiuntiva: f.categoria.value === CAT_AFFITTO ? false : f.aggiuntiva.checked,
+    importo, motivo: f.motivo.value.trim(),
   };
+  // categoria, servizio (chiave o null) e aggiuntiva calcolata con le regole di Summer Database
+  const sc = sceltaCategoria();
+  dati.categoria = sc.categoria;
+  dati.servizio = sc.servizio || null;
+  dati.aggiuntiva = calcolaAggiuntiva(sc, pSel || null, catalogo);
   const ref = editId ? doc(db, "scontrini", editId) : doc(collection(db, "scontrini"));
   const b = writeBatch(db);
   if (editId) b.update(ref, { ...dati, ...(fotoNuova ? { hasFoto: true } : {}), modificatoDa: user.email, modificatoIl: serverTimestamp() });
@@ -339,9 +376,8 @@ f.onsubmit = async (e) => {
 function resetForm() {
   const villa = f.villaId.value;
   editId = null; fotoNuova = null; prenManuale = false;
-  menuCategorie();
   f.reset();
-  statoAggiuntiva();
+  menuCategorie();
   f.villaId.value = villa; // resta selezionata l'ultima villa usata
   f.data.value = oggi();
   showPreview(null);
@@ -412,7 +448,7 @@ function renderLista() {
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
-        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${isAggiuntiva(s) ? ' <span class="tag">aggiuntiva</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
       <div class="amount${isRestituzione(s) ? " rest" : ""}">${importoMostrato(s)}${isRestituzione(s) ? "<small>restituito al cliente</small>" : s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
@@ -424,17 +460,16 @@ $("lista").onclick = async (e) => {
   if (!s) return;
   if (isRestituzione(s)) return toast("La restituzione del deposito si gestisce solo da Summer Database");
   editId = s.id; fotoNuova = null; prenManuale = true;
-  menuCategorie(s.categoria);
+  menuCategorie(s);
   f.villaId.value = s.villaId;
   f.data.value = s.data;
   f.importo.value = String(s.importo).replace(".", ",");
-  f.categoria.value = s.categoria;
-  f.aggiuntiva.checked = isAggiuntiva(s);
-  statoAggiuntiva();
+
   f.motivo.value = s.motivo;
   renderPrenSelect();
   const pTrov = trovaPren(s, pren);
   f.prenotazioneId.value = pTrov && !pTrov.nonInCalendario ? pTrov.id : "";
+  aggiornaHintCategoria();
   if (pTrov?.nonInCalendario) document.getElementById("pren-hint").textContent =
     `La prenotazione originale (${pTrov.ospite}) non è più in calendario: scegline una o lascia "spesa generale".`;
   $("f-title").textContent = "Modifica scontrino";
@@ -466,7 +501,7 @@ function finestra(periodo) {
   if (m) return [oggiIso, piuGiorni(oggiIso, Number(m[1]) * 7 - 1)];
   return null;
 }
-const nomeServizio = (k) => (SERVIZI_BASE.find(([x]) => x === k) || serviziExtra.find(([x]) => x === k) || [k, k])[1];
+const nomeServizio = (k) => catalogo.servizi.find((x) => x.key === k)?.label || SERVIZI_BASE.find(([x]) => x === k)?.[1] || k;
 
 function renderSchede() {
   const sv = $("sc-villa");

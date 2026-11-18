@@ -71,11 +71,18 @@ export function trovaPren(s, prenotazioni) {
   return null;
 }
 
-/* Categorie proposte nel menu dell'app Scontrini (stesso elenco di Summer Database,
-   tranne "Restituzione deposito sicurezza", che si inserisce solo da Summer Database). */
+/* ---------- Categorie degli scontrini (dal 18/11/2026 dalle Impostazioni di Summer Database) ----------
+   Il menu ha tre gruppi:
+   1) Servizi offerti: i servizi delle prenotazioni (meta/settings: base pulizia/cuoco/transfer con nome in
+      serviziBase[chiave].label e tolti se serviziBase[chiave].off; più servizi: [{ key, label }]).
+      Lo scontrino salva categoria = nome del servizio e servizio = chiave.
+   2) Altre categorie: meta/settings.categorieSpese (se manca, CATEGORIE qui sotto);
+      quelle in meta/settings.categorieAggiuntive sono aggiuntive.
+   3) Fisse: Danni villa (sempre aggiuntiva). Affitto proprietario e Restituzione deposito sicurezza
+      esistono ma si inseriscono solo da Summer Database: non sono nel menu. */
 export const CATEGORIE = [
   "Pulizie", "Manutenzione", "Lavanderia", "Spesa e forniture", "Utenze",
-  "Giardino e piscina", "Benvenuto ospiti", "Commissioni e tasse", "Danni villa", "Altro"
+  "Giardino e piscina", "Benvenuto ospiti", "Commissioni e tasse", "Altro"
 ];
 /* Denaro restituito al cliente, non una spesa della villa: l'importo è salvato positivo,
    si mostra con il meno ed è escluso da tutti i totali delle spese. */
@@ -84,10 +91,43 @@ export const CAT_DANNI = "Danni villa";
 /* Quanto pagato davvero al proprietario: spesa normale (entra nei totali), mai "aggiuntiva".
    Dato economico riservato: si inserisce da Summer Database e non è nel menu dell'app Scontrini. */
 export const CAT_AFFITTO = "Affitto proprietario";
-/* Campo facoltativo scontrini.aggiuntiva: true = spesa per un servizio aggiuntivo richiesto durante il soggiorno
-   (da addebitare al cliente o trattenere dal deposito). Se manca, "Danni villa" conta come aggiuntiva. */
-export const isAggiuntiva = (s) =>
-  s?.categoria === CAT_AFFITTO ? false : typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : s?.categoria === CAT_DANNI;
+
+/* Elenco delle categorie a partire da meta/settings (null = non leggibile → valori predefiniti). */
+export function catalogoCategorie(settings) {
+  const sb = (settings && settings.serviziBase) || {};
+  const servizi = [
+    ...SERVIZI_BASE.filter(([k]) => !(sb[k] && sb[k].off))
+      .map(([k, def]) => ({ key: k, label: String((sb[k] && sb[k].label) || "").trim() || def })),
+    ...(Array.isArray(settings?.servizi) ? settings.servizi : [])
+      .filter((x) => x && x.key).map((x) => ({ key: x.key, label: String(x.label || x.key).trim() })),
+  ];
+  const lista = Array.isArray(settings?.categorieSpese) ? settings.categorieSpese.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const altre = (lista.length ? lista : CATEGORIE)
+    .filter((c) => ![CAT_DANNI, CAT_AFFITTO, CAT_RESTITUZIONE].includes(c));
+  const aggiuntive = new Set(Array.isArray(settings?.categorieAggiuntive) ? settings.categorieAggiuntive : []);
+  return { servizi, altre, aggiuntive };
+}
+/* Chiave del servizio di uno scontrino: il campo servizio, oppure una categoria uguale al nome di un servizio. */
+export function servizioDi(s, cat) {
+  if (s?.servizio) return s.servizio;
+  return cat.servizi.find((x) => x.label === s?.categoria)?.key || null;
+}
+/* "Aggiuntiva" (da addebitare al cliente) calcolata come in Summer Database:
+   - servizio: offerto se la prenotazione dello scontrino ha quel servizio, altrimenti aggiuntivo
+     (anche per le spese generali, senza prenotazione);
+   - altre categorie: aggiuntiva se è in categorieAggiuntive;
+   - Danni villa sì; Affitto proprietario e Restituzione no;
+   - categoria sconosciuta (rinominata o tolta): vale il campo aggiuntiva salvato.
+   p = prenotazione dello scontrino già normalizzata (normPren), oppure null. */
+export function calcolaAggiuntiva(s, p, cat) {
+  const c = s?.categoria;
+  if (c === CAT_AFFITTO || c === CAT_RESTITUZIONE) return false;
+  if (c === CAT_DANNI) return true;
+  const k = servizioDi(s, cat);
+  if (k) return !(p && Array.isArray(p.servizi) && p.servizi.includes(k));
+  if (cat.altre.includes(c)) return cat.aggiuntive.has(c);
+  return typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : false;
+}
 export const isRestituzione = (s) => s?.categoria === CAT_RESTITUZIONE;
 export const importoSpesa = (s) => (isRestituzione(s) ? 0 : Number(s?.importo) || 0);
 export const importoMostrato = (s) => (isRestituzione(s) ? "−" + euro(s.importo) : euro(s?.importo));
