@@ -287,3 +287,6 @@ label.check:has(input:disabled) { opacity: .5; cursor: default; }
 .tag { display: inline-block; font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; padding: 1px 6px; border: 1px solid var(--accent); color: var(--accent-dark); border-radius: var(--radius); vertical-align: 1px; }
 /* Stato "Vuoto per pieno" (stesso arancione di Summer Database) */
 .vuoto { color: #e9801c; }
+/* Metodo di pagamento */
+.pagamenti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pagamenti .chip { padding: 11px 6px; text-align: center; font-size: .9rem; }

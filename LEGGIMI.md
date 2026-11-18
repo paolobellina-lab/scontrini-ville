@@ -23,7 +23,7 @@ si consulta ora solo in Summer Database.
   `normPren` in `shared/firebase.js` copia solo i campi consentiti.
 - `meta/settings.servizi`: nomi dei servizi aggiunti in Summer Database.
 - `scontrini`: `villaId`, `prenotazioneId`, `prenotazione` (copia di cliente e date), `data`, `importo`, `categoria`,
-  `motivo`, `servizio`, `aggiuntiva`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
+  `motivo`, `servizio`, `aggiuntiva`, `pagamento`, `hasFoto`, `creatoDa`, `creatoIl` (+ `storico` scritto da Summer Database).
   `servizio` (chiave del servizio o `null`, dal 18/11/2026) e `aggiuntiva` (bool): `true` = spesa per un servizio aggiuntivo
   (da addebitare al cliente o trattenere dal deposito); `false` = servizi offerti nella prenotazione.
   Vedi "Categorie" più sotto per come si calcola.
@@ -48,6 +48,14 @@ Gli affitti dei clienti in quei giorni sono prenotazioni separate (`acquistoDi` 
 - Gli scontrini si possono collegare anche a un vuoto (spese della villa in quei giorni).
 - Scelta automatica in base alla data: se la data cade sia nell'affitto di un cliente sia nel vuoto che lo contiene,
   viene proposta la prenotazione del cliente.
+
+### Metodo di pagamento (dal 18/11/2026)
+Campo `pagamento`: `"contanti"` | `"carta"` (carta di credito) | `"bonifico"`; `null` o assente = non indicato (`PAGAMENTI`).
+Nel modulo, riquadro "Metodo di pagamento" con tre pulsanti (toccando di nuovo quello scelto si toglie la scelta);
+si salva con `set` per i nuovi e `update` per le modifiche. Uno scontrino senza metodo resta valido: modificandolo senza
+scegliere, il campo resta vuoto (`null`); un valore sconosciuto scritto da Summer Database viene conservato.
+In Inseriti il metodo compare accanto alla prenotazione. Lo `storico` delle versioni precedenti lo scrive Summer Database;
+l'app Scontrini usa `update`, quindi non lo tocca.
 
 ### Categorie (dalle Impostazioni di Summer Database, `meta/settings`)
 Elenco costruito da `catalogoCategorie` in `shared/firebase.js`:

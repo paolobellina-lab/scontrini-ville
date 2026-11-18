@@ -136,6 +136,9 @@ export function calcolaAggiuntiva(s, p, cat) {
   if (cat.altre.includes(c)) return !cat.proprietario.has(c) && cat.aggiuntive.has(c);
   return typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : false;
 }
+/* Metodo di pagamento dello scontrino (campo pagamento, dal 18/11/2026); null o assente = non indicato */
+export const PAGAMENTI = [["contanti", "Contanti"], ["carta", "Carta di credito"], ["bonifico", "Bonifico"]];
+export const nomePagamento = (v) => (PAGAMENTI.find(([k]) => k === v) || [, ""])[1];
 /* Importo che conta nei totali delle spese dell'app (le categorie riservate non sono mai mostrate né contate) */
 export const importoSpesa = (s) => (isRiservata(s) ? 0 : Number(s?.importo) || 0);
 /* Categoria a carico del proprietario (meta/settings.categorieProprietario) */

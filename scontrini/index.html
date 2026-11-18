@@ -79,6 +79,10 @@
         <label>Categoria<select name="categoria"></select>
           <small id="cat-hint" class="muted" style="font-weight:400"></small>
         </label>
+        <div>
+          <span class="campo">Metodo di pagamento</span>
+          <div class="pagamenti" id="pagamenti" role="group" aria-label="Metodo di pagamento"></div>
+        </div>
         <label>Motivo della spesa
           <textarea name="motivo" rows="3" required placeholder="Es. pulizia finale dopo la partenza degli ospiti"></textarea>
         </label>
@@ -131,7 +135,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  PAGAMENTI, nomePagamento, CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -142,6 +146,22 @@ let assegnazioni = null, vis = null; // vis = null → l'account vede tutto (sol
 let utentiAccessi = [], caricati = {};
 let catalogo = catalogoCategorie(null); // categorie e servizi da meta/settings (predefiniti finché non si legge)
 let editId = null, fotoNuova = null, prenManuale = false;
+
+/* Metodo di pagamento: tre pulsanti; toccando quello già scelto si toglie la scelta (non indicato) */
+let pagamento = null, pagamentoAltro = null; // pagamentoAltro: valore sconosciuto di uno scontrino in modifica, conservato
+$("pagamenti").innerHTML = PAGAMENTI.map(([k, t]) => `<button type="button" class="chip" data-pag="${k}" aria-pressed="false" title="${t}">${k === "carta" ? "Carta" : t}</button>`).join("");
+function scegliPagamento(v) {
+  pagamento = v;
+  document.querySelectorAll("[data-pag]").forEach((b) => {
+    const on = b.dataset.pag === v;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on);
+  });
+}
+$("pagamenti").onclick = (e) => {
+  const b = e.target.closest("[data-pag]");
+  if (b) scegliPagamento(pagamento === b.dataset.pag ? null : b.dataset.pag);
+};
 
 /* Menu categorie in due gruppi, come in Summer Database: "Non aggiuntive" e "Aggiuntive".
    I servizi stanno nell'uno o nell'altro secondo la prenotazione scelta (servizio previsto = non aggiuntiva),
@@ -360,6 +380,7 @@ f.onsubmit = async (e) => {
   dati.categoria = sc.categoria;
   dati.servizio = sc.servizio || null;
   dati.aggiuntiva = calcolaAggiuntiva(sc, pSel || null, catalogo);
+  dati.pagamento = pagamento || pagamentoAltro || null; // contanti | carta | bonifico; null = non indicato
   const ref = editId ? doc(db, "scontrini", editId) : doc(collection(db, "scontrini"));
   const b = writeBatch(db);
   if (editId) b.update(ref, { ...dati, ...(fotoNuova ? { hasFoto: true } : {}), modificatoDa: user.email, modificatoIl: serverTimestamp() });
@@ -385,6 +406,7 @@ f.onsubmit = async (e) => {
 };
 
 function resetForm() {
+  scegliPagamento(null); pagamentoAltro = null;
   const villa = f.villaId.value;
   editId = null; fotoNuova = null; prenManuale = false;
   f.reset();
@@ -460,7 +482,7 @@ function renderLista() {
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
-        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""}${aCaricoProprietario(s, catalogo) ? ' <span class="tag">a carico del proprietario</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}</span>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""}${aCaricoProprietario(s, catalogo) ? ' <span class="tag">a carico del proprietario</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}${s.pagamento && nomePagamento(s.pagamento) ? " · " + nomePagamento(s.pagamento) : ""}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
       <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;
@@ -478,6 +500,9 @@ $("lista").onclick = async (e) => {
   f.importo.value = String(s.importo).replace(".", ",");
 
   f.motivo.value = s.motivo;
+  const noto = PAGAMENTI.some(([k]) => k === s.pagamento);
+  scegliPagamento(noto ? s.pagamento : null);
+  pagamentoAltro = !noto && s.pagamento ? s.pagamento : null;
   renderPrenSelect();
   const pTrov = trovaPren(s, pren);
   f.prenotazioneId.value = pTrov && !pTrov.nonInCalendario ? pTrov.id : "";
