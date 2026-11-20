@@ -52,6 +52,9 @@ export const normPren = (b) => ({
   // si copia solo questo, non prezzi né altri dati del servizio
   serviziProprietario: Object.entries(b.serviziDett || {})
     .filter(([, d]) => d && d.carico === "proprietario").map(([k]) => k),
+  // voci delle note spese comprese nell'offerta da cui è nata la prenotazione (dal 20/11/2026);
+  // null = prenotazione inserita a mano (campo assente). Si copia solo l'elenco dei nomi.
+  vociOfferta: Array.isArray(b.vociOfferta) ? b.vociOfferta.map((x) => String(x || "").trim()).filter(Boolean) : null,
 });
 /* Servizi di base della scheda prenotazione di Summer Database; gli altri arrivano da meta/settings.servizi */
 export const SERVIZI_BASE = [["pulizia", "Pulizia finale"], ["cuoco", "Cuoco"], ["transfer", "Transfer"]];
@@ -124,7 +127,11 @@ export function catalogoCategorie(settings) {
   const aggiuntive = new Set(Array.isArray(settings?.categorieAggiuntive) ? settings.categorieAggiuntive : []);
   // spese a carico del proprietario: spese normali (aggiuntiva = false), mostrate a parte in Summer Database
   const proprietario = new Set(Array.isArray(settings?.categorieProprietario) ? settings.categorieProprietario : []);
-  return { servizi, spenti, nomiServizi, altre, aggiuntive, proprietario };
+  // voci Predefinite (prezziServizi["voce:<nome>"].predef): già nel prezzo di listino
+  const ps = (settings && settings.prezziServizi) || {};
+  const vociPredefinite = new Set(Object.entries(ps)
+    .filter(([k, v]) => k.startsWith("voce:") && v && v.predef === true).map(([k]) => k.slice(5)));
+  return { servizi, spenti, nomiServizi, altre, aggiuntive, proprietario, vociPredefinite };
 }
 /* Chiave del servizio di uno scontrino: il campo servizio, oppure una categoria uguale al nome di un servizio. */
 /* Un servizio tolto dall'offerta (off) vale come servizio solo se la prenotazione dello scontrino lo ha ancora
@@ -142,13 +149,25 @@ export function servizioDi(s, cat, p) {
    - Danni villa sì; le categorie riservate (Affitto proprietario, Restituzione, Addebiti) no;
    - categoria sconosciuta (rinominata o tolta): vale il campo aggiuntiva salvato.
    p = prenotazione dello scontrino già normalizzata (normPren), oppure null. */
+/* Voce a carico del cliente compresa nell'offerta della prenotazione (dal 20/11/2026):
+   - prenotazione nata da un'offerta (vociOfferta presente): la voce è nell'elenco;
+   - prenotazione inserita a mano (vociOfferta assente): la voce è Predefinita;
+   - senza prenotazione (spese generali): mai. */
+export function voceInOfferta(c, p, cat) {
+  if (!p) return false;
+  if (Array.isArray(p.vociOfferta)) return p.vociOfferta.includes(c);
+  return !!cat.vociPredefinite?.has(c);
+}
 export function calcolaAggiuntiva(s, p, cat) {
   const c = s?.categoria;
   if (CATEGORIE_RISERVATE.includes(c)) return false;
   if (c === CAT_DANNI) return true;
   const k = servizioDi(s, cat, p);
   if (k) return !(p && Array.isArray(p.servizi) && p.servizi.includes(k));
-  if (cat.altre.includes(c)) return !cat.proprietario.has(c) && cat.aggiuntive.has(c);
+  if (cat.altre.includes(c)) {
+    if (cat.proprietario.has(c) || !cat.aggiuntive.has(c)) return false;
+    return !voceInOfferta(c, p, cat); // voce a carico del cliente: aggiuntiva solo se non era nell'offerta
+  }
   return typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : false;
 }
 /* Metodo di pagamento dello scontrino (campo pagamento, dal 18/11/2026); null o assente = non indicato */

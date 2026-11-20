@@ -89,7 +89,16 @@ menu ed etichetta in Inseriti), come le categorie di `categorieProprietario` (`a
 **Offerta o aggiuntiva** (`calcolaAggiuntiva`):
 - servizio → offerto se la prenotazione ha quel servizio (`bookings.pulizia|cuoco|transfer` vero, oppure `bookings.servizi`
   contiene la chiave); altrimenti, o senza prenotazione, **aggiuntiva**;
-- altre categorie → aggiuntiva se in `categorieAggiuntive` (mai se a carico del proprietario);
+- altre categorie → non aggiuntive, tranne le voci **a carico del cliente** (`categorieAggiuntive`, mai se a carico del
+  proprietario), che dal 20/11/2026 sono aggiuntive solo se non erano nell'offerta della prenotazione (`voceInOfferta`):
+  - prenotazione nata da un'offerta (`bookings.vociOfferta: [nome]`, copiato da `normPren`): non aggiuntiva se la voce è
+    nell'elenco, altrimenti aggiuntiva;
+  - prenotazione inserita a mano (senza `vociOfferta`): non aggiuntiva se la voce è **Predefinita**
+    (`meta/settings.prezziServizi["voce:" + nome].predef === true`), altrimenti aggiuntiva;
+  - senza prenotazione (spese generali): aggiuntiva.
+  Sotto il menu: "Voce compresa nell'offerta di questa prenotazione: spesa offerta, non da addebitare al cliente."
+  (o "Voce predefinita, già compresa nel prezzo…" per le prenotazioni inserite a mano). `prezziServizi` contiene anche
+  chiavi `voce:<nome>`, che non sono servizi; per i servizi conta sempre la spunta nella prenotazione;
 - Danni villa → sì; categorie riservate → no;
 - categoria sconosciuta (rinominata o tolta dopo l'inserimento) → vale il campo `aggiuntiva` salvato.
 

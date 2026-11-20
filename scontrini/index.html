@@ -135,7 +135,7 @@
 <script type="module">
 import {
   db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
-  PAGAMENTI, nomePagamento, CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
+  PAGAMENTI, nomePagamento, voceInOfferta, CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
 
@@ -224,7 +224,12 @@ function aggiornaHintCategoria() {
            : aCaricoProprietario(sc, catalogo, p) ? "Servizio della prenotazione a carico del proprietario: spesa a carico del proprietario."
            : "Servizio offerto in questa prenotazione.")
     : agg ? "Spesa aggiuntiva: da addebitare al cliente o trattenere dal deposito."
-    : aCaricoProprietario(sc, catalogo, p) ? "Spesa a carico del proprietario." : "";
+    : aCaricoProprietario(sc, catalogo, p) ? "Spesa a carico del proprietario."
+    : catalogo.aggiuntive.has(sc.categoria) && voceInOfferta(sc.categoria, p, catalogo)
+      ? (Array.isArray(p?.vociOfferta)
+        ? "Voce compresa nell'offerta di questa prenotazione: spesa offerta, non da addebitare al cliente."
+        : "Voce predefinita, già compresa nel prezzo: spesa offerta, non da addebitare al cliente.")
+    : "";
 }
 menuCategorie();
 f.categoria.addEventListener("change", aggiornaHintCategoria);
