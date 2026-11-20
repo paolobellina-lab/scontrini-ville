@@ -48,6 +48,10 @@ export const normPren = (b) => ({
   servizi: [...SERVIZI_BASE.map(([k]) => k).filter((k) => b[k]), ...(Array.isArray(b.servizi) ? b.servizi : [])],
   noteServizi: Object.fromEntries(Object.entries(b.serviziDett || {})
     .map(([k, d]) => [k, String((d && d.note) || "").trim()]).filter(([, n]) => n)),
+  // servizi che la prenotazione ha "a carico del proprietario" (serviziDett[chiave].carico, dal 20/11/2026):
+  // si copia solo questo, non prezzi né altri dati del servizio
+  serviziProprietario: Object.entries(b.serviziDett || {})
+    .filter(([, d]) => d && d.carico === "proprietario").map(([k]) => k),
 });
 /* Servizi di base della scheda prenotazione di Summer Database; gli altri arrivano da meta/settings.servizi */
 export const SERVIZI_BASE = [["pulizia", "Pulizia finale"], ["cuoco", "Cuoco"], ["transfer", "Transfer"]];
@@ -90,12 +94,15 @@ export const CAT_DANNI = "Danni villa";
    prenotazioni), le esclude da conteggi e totali e non le tocca.
    - Affitto proprietario: quanto pagato davvero al proprietario (spesa, mai aggiuntiva);
    - Restituzione deposito sicurezza: denaro restituito al cliente (importo salvato positivo);
-   - Addebito cliente / Addebito proprietario: entrate (quanto si fa pagare al cliente o al proprietario). */
+   - Addebito cliente / Addebito proprietario: entrate (quanto si fa pagare al cliente o al proprietario);
+   - Commissione agenzia (dal 20/11/2026): quanto si riconosce all'agenzia che ha portato il cliente
+     (spesa della prenotazione, mai aggiuntiva; si crea solo da Summer Database). */
 export const CAT_AFFITTO = "Affitto proprietario";
 export const CAT_RESTITUZIONE = "Restituzione deposito sicurezza";
 export const CAT_ADDEBITO_CLIENTE = "Addebito cliente";
 export const CAT_ADDEBITO_PROPRIETARIO = "Addebito proprietario";
-export const CATEGORIE_RISERVATE = [CAT_AFFITTO, CAT_RESTITUZIONE, CAT_ADDEBITO_CLIENTE, CAT_ADDEBITO_PROPRIETARIO];
+export const CAT_COMMISSIONE_AGENZIA = "Commissione agenzia";
+export const CATEGORIE_RISERVATE = [CAT_AFFITTO, CAT_RESTITUZIONE, CAT_ADDEBITO_CLIENTE, CAT_ADDEBITO_PROPRIETARIO, CAT_COMMISSIONE_AGENZIA];
 export const isRiservata = (s) => CATEGORIE_RISERVATE.includes(s?.categoria);
 
 /* Elenco delle categorie a partire da meta/settings (null = non leggibile → valori predefiniti). */
@@ -142,7 +149,13 @@ export const nomePagamento = (v) => (PAGAMENTI.find(([k]) => k === v) || [, ""])
 /* Importo che conta nei totali delle spese dell'app (le categorie riservate non sono mai mostrate né contate) */
 export const importoSpesa = (s) => (isRiservata(s) ? 0 : Number(s?.importo) || 0);
 /* Categoria a carico del proprietario (meta/settings.categorieProprietario) */
-export const aCaricoProprietario = (s, cat) => !s?.servizio && cat.proprietario.has(s?.categoria);
+/* A carico del proprietario: categoria in categorieProprietario, oppure (dal 20/11/2026) servizio previsto nella
+   prenotazione con carico "proprietario". p = prenotazione normalizzata dello scontrino, o null. */
+export function aCaricoProprietario(s, cat, p) {
+  const k = servizioDi(s, cat);
+  if (k) return !!(p && Array.isArray(p.servizi) && p.servizi.includes(k) && (p.serviziProprietario || []).includes(k));
+  return cat.proprietario.has(s?.categoria);
+}
 
 /* ---------- Login ---------- */
 export function setupAuth({ onLogin, onLogout }) {

@@ -183,7 +183,10 @@ function menuCategorie(extra) {
   const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
   const p = pren.find((x) => x.id === f.prenotazioneId.value) || null;
   const voci = [
-    ...catalogo.servizi.map((x) => ({ v: "s:" + x.key, t: x.label, agg: calcolaAggiuntiva({ categoria: x.label, servizio: x.key }, p, catalogo) })),
+    ...catalogo.servizi.map((x) => {
+      const sx = { categoria: x.label, servizio: x.key };
+      return { v: "s:" + x.key, t: aCaricoProprietario(sx, catalogo, p) ? `${x.label} · a carico del proprietario` : x.label, agg: calcolaAggiuntiva(sx, p, catalogo) };
+    }),
     ...catalogo.altre.map((c) => ({ v: "c:" + c, t: catalogo.proprietario.has(c) ? `${c} · a carico del proprietario` : c, agg: calcolaAggiuntiva({ categoria: c }, p, catalogo) })),
     { v: "c:" + CAT_DANNI, t: CAT_DANNI, agg: true },
   ];
@@ -215,9 +218,10 @@ function aggiornaHintCategoria() {
   $("cat-hint").textContent = sc.servizio
     ? (agg ? (p ? "Servizio non previsto in questa prenotazione: spesa aggiuntiva, da addebitare al cliente."
                 : "Senza prenotazione il servizio conta come spesa aggiuntiva.")
+           : aCaricoProprietario(sc, catalogo, p) ? "Servizio della prenotazione a carico del proprietario: spesa a carico del proprietario."
            : "Servizio offerto in questa prenotazione.")
     : agg ? "Spesa aggiuntiva: da addebitare al cliente o trattenere dal deposito."
-    : aCaricoProprietario(sc, catalogo) ? "Spesa a carico del proprietario." : "";
+    : aCaricoProprietario(sc, catalogo, p) ? "Spesa a carico del proprietario." : "";
 }
 menuCategorie();
 f.categoria.addEventListener("change", aggiornaHintCategoria);
@@ -482,7 +486,7 @@ function renderLista() {
     const p = trovaPren(s, pren);
     return `<button type="button" class="item" data-s="${s.id}">
       <div class="item-main"><strong>${esc(v?.nome || "Villa " + s.villaId)}</strong>
-        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""}${aCaricoProprietario(s, catalogo) ? ' <span class="tag">a carico del proprietario</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}${s.pagamento && nomePagamento(s.pagamento) ? " · " + nomePagamento(s.pagamento) : ""}</span>
+        <span class="muted">${dataIt(s.data)} · ${esc(s.categoria)}${aggiuntivaDi(s, p) ? ' <span class="tag">aggiuntiva</span>' : ""}${aCaricoProprietario(s, catalogo, p && !p.nonInCalendario ? p : null) ? ' <span class="tag">a carico del proprietario</span>' : ""} · ${p ? esc(p.ospite) : "spesa generale"}${s.pagamento && nomePagamento(s.pagamento) ? " · " + nomePagamento(s.pagamento) : ""}</span>
         <span class="clip">${esc(s.motivo)}</span></div>
       <div class="amount">${euro(s.importo)}${s.hasFoto ? "<small>con foto</small>" : "<small>senza foto</small>"}</div>
     </button>`;

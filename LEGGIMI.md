@@ -18,7 +18,7 @@ si consulta ora solo in Summer Database.
   Dalle prenotazioni usa solo: `villaId`, `cliente`, `from`, `to`, `status` (solo per l'etichetta nel menu),
   `earlyIn`, `lateOut`, `pulizia`, `cuoco`, `transfer`, `servizi`, `serviziDett.{chiave}.note`, `note`.
   **Non mostra mai i dati economici né quelli interni**: `prezzoVendita`, `prezzoAcquisto`, `deposito` (deposito di sicurezza),
-  `pagatoDal`, `pagatoAl`, `acquistoDi`,
+  `pagatoDal`, `pagatoAl`, `acquistoDi`, `agenziaId`, `agenziaPerc`, `utenze`, `conteggiConclusi`,
   i prezzi dei servizi e `serviziDett.*.incluso`; nemmeno stato e colore nelle schede.
   `normPren` in `shared/firebase.js` copia solo i campi consentiti.
 - `meta/settings.servizi`: nomi dei servizi aggiunti in Summer Database.
@@ -72,6 +72,12 @@ Elenco costruito da `catalogoCategorie` in `shared/firebase.js`:
 nell'altro secondo la prenotazione scelta (servizio previsto nella prenotazione = non aggiuntiva) e il menu si riordina
 quando cambia la prenotazione. Le spese a carico del proprietario hanno la dicitura "· a carico del proprietario".
 
+**Servizi a carico del proprietario** (dal 20/11/2026): in Summer Database ogni servizio della prenotazione ha un carico,
+`bookings.serviziDett[chiave].carico = 'esmeralda' | 'parte' | 'proprietario'`. `normPren` copia soltanto l'elenco dei
+servizi con carico `proprietario` (`serviziProprietario`). Uno scontrino di un servizio previsto nella prenotazione con
+carico `proprietario` resta "non aggiuntivo" ma è mostrato **a carico del proprietario** (dicitura nel menu, riga sotto il
+menu ed etichetta in Inseriti), come le categorie di `categorieProprietario` (`aCaricoProprietario`).
+
 **Offerta o aggiuntiva** (`calcolaAggiuntiva`):
 - servizio → offerto se la prenotazione ha quel servizio (`bookings.pulizia|cuoco|transfer` vero, oppure `bookings.servizi`
   contiene la chiave); altrimenti, o senza prenotazione, **aggiuntiva**;
@@ -86,12 +92,12 @@ Rinominare o togliere una categoria in Summer Database non cambia gli scontrini 
 categoria resta (aggiunta al menu solo per quello scontrino).
 
 ### Categorie riservate a Summer Database (decisione del proprietario, 18/11/2026)
-**Affitto proprietario**, **Restituzione deposito sicurezza**, **Addebito cliente**, **Addebito proprietario**
-(`CATEGORIE_RISERVATE`, `isRiservata`): si inseriscono, modificano e cancellano solo da Summer Database.
+**Affitto proprietario**, **Restituzione deposito sicurezza**, **Addebito cliente**, **Addebito proprietario** e
+(dal 20/11/2026) **Commissione agenzia** (`CATEGORIE_RISERVATE`, `isRiservata`): si inseriscono, modificano e cancellano solo da Summer Database.
 Nell'app Scontrini non sono mai nel menu, **non si mostrano** (né in Inseriti né nelle Schede prenotazioni, né nei conteggi
 dei filtri), sono escluse da tutti i conteggi e totali e non vengono mai toccate. Gli scontrini restano nella collezione
 `scontrini` con la stessa struttura: l'app li filtra soltanto. Così gli importi pagati al proprietario, i depositi
-restituiti e gli addebiti non sono visibili ai collaboratori.
+restituiti, gli addebiti e le commissioni d'agenzia non sono visibili ai collaboratori.
 
 ## Chi può entrare
 
