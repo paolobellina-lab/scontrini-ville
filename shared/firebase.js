@@ -108,24 +108,32 @@ export const isRiservata = (s) => CATEGORIE_RISERVATE.includes(s?.categoria);
 /* Elenco delle categorie a partire da meta/settings (null = non leggibile → valori predefiniti). */
 export function catalogoCategorie(settings) {
   const sb = (settings && settings.serviziBase) || {};
-  const servizi = [
-    ...SERVIZI_BASE.filter(([k]) => !(sb[k] && sb[k].off))
-      .map(([k, def]) => ({ key: k, label: String((sb[k] && sb[k].label) || "").trim() || def })),
+  // tutti i servizi, anche quelli tolti dall'offerta (off: true): base → serviziBase[chiave].off,
+  // aggiunti → servizi[i].off (dal 20/11/2026; il record resta per le prenotazioni che lo hanno)
+  const tutti = [
+    ...SERVIZI_BASE.map(([k, def]) => ({ key: k, label: String((sb[k] && sb[k].label) || "").trim() || def, off: !!(sb[k] && sb[k].off) })),
     ...(Array.isArray(settings?.servizi) ? settings.servizi : [])
-      .filter((x) => x && x.key).map((x) => ({ key: x.key, label: String(x.label || x.key).trim() })),
+      .filter((x) => x && x.key).map((x) => ({ key: x.key, label: String(x.label || x.key).trim(), off: !!x.off })),
   ];
+  const servizi = tutti.filter((x) => !x.off).map(({ key, label }) => ({ key, label })); // quelli nel menu
+  const spenti = new Set(tutti.filter((x) => x.off).map((x) => x.key));
+  const nomiServizi = new Map(tutti.map((x) => [x.key, x.label]));
   const lista = Array.isArray(settings?.categorieSpese) ? settings.categorieSpese.map((x) => String(x || "").trim()).filter(Boolean) : [];
   const altre = (lista.length ? lista : CATEGORIE)
     .filter((c) => c !== CAT_DANNI && !CATEGORIE_RISERVATE.includes(c));
   const aggiuntive = new Set(Array.isArray(settings?.categorieAggiuntive) ? settings.categorieAggiuntive : []);
   // spese a carico del proprietario: spese normali (aggiuntiva = false), mostrate a parte in Summer Database
   const proprietario = new Set(Array.isArray(settings?.categorieProprietario) ? settings.categorieProprietario : []);
-  return { servizi, altre, aggiuntive, proprietario };
+  return { servizi, spenti, nomiServizi, altre, aggiuntive, proprietario };
 }
 /* Chiave del servizio di uno scontrino: il campo servizio, oppure una categoria uguale al nome di un servizio. */
-export function servizioDi(s, cat) {
-  if (s?.servizio) return s.servizio;
-  return cat.servizi.find((x) => x.label === s?.categoria)?.key || null;
+/* Un servizio tolto dall'offerta (off) vale come servizio solo se la prenotazione dello scontrino lo ha ancora
+   spuntato; altrimenti lo scontrino segue la voce delle note spese con lo stesso nome.
+   p = prenotazione normalizzata (normPren) o null; se non indicata (undefined) il servizio spento non vale. */
+export function servizioDi(s, cat, p) {
+  const k = s?.servizio || cat.servizi.find((x) => x.label === s?.categoria)?.key || null;
+  if (!k || !cat.spenti?.has(k)) return k;
+  return p && Array.isArray(p.servizi) && p.servizi.includes(k) ? k : null;
 }
 /* "Aggiuntiva" (da addebitare al cliente) calcolata come in Summer Database:
    - servizio: offerto se la prenotazione dello scontrino ha quel servizio, altrimenti aggiuntivo
@@ -138,7 +146,7 @@ export function calcolaAggiuntiva(s, p, cat) {
   const c = s?.categoria;
   if (CATEGORIE_RISERVATE.includes(c)) return false;
   if (c === CAT_DANNI) return true;
-  const k = servizioDi(s, cat);
+  const k = servizioDi(s, cat, p);
   if (k) return !(p && Array.isArray(p.servizi) && p.servizi.includes(k));
   if (cat.altre.includes(c)) return !cat.proprietario.has(c) && cat.aggiuntive.has(c);
   return typeof s?.aggiuntiva === "boolean" ? s.aggiuntiva : false;
@@ -152,7 +160,7 @@ export const importoSpesa = (s) => (isRiservata(s) ? 0 : Number(s?.importo) || 0
 /* A carico del proprietario: categoria in categorieProprietario, oppure (dal 20/11/2026) servizio previsto nella
    prenotazione con carico "proprietario". p = prenotazione normalizzata dello scontrino, o null. */
 export function aCaricoProprietario(s, cat, p) {
-  const k = servizioDi(s, cat);
+  const k = servizioDi(s, cat, p);
   if (k) return !!(p && Array.isArray(p.servizi) && p.servizi.includes(k) && (p.serviziProprietario || []).includes(k));
   return cat.proprietario.has(s?.categoria);
 }

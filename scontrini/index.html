@@ -173,8 +173,11 @@ function menuCategorie(extra) {
   const prima = f.categoria.value;
   // ricostruendo il menu (es. cambio prenotazione) si tiene la categoria fuori elenco già scelta
   fuoriElenco = !extra && fuoriElenco && prima === fuoriElenco.value ? fuoriElenco : null;
+  // servizio effettivo dello scontrino in modifica (un servizio tolto dall'offerta vale solo se la sua prenotazione lo ha)
+  const pExtra = extra ? (() => { const t = trovaPren(extra, pren); return t && !t.nonInCalendario ? t : null; })() : null;
+  const kExtra = extra ? servizioDi(extra, catalogo, pExtra) : null;
   if (extra) {
-    const k = servizioDi(extra, catalogo);
+    const k = kExtra;
     const val = k ? "s:" + k : "c:" + extra.categoria;
     const esiste = k ? catalogo.servizi.some((x) => x.key === k)
       : catalogo.altre.includes(extra.categoria) || extra.categoria === CAT_DANNI;
@@ -195,7 +198,7 @@ function menuCategorie(extra) {
     gruppo("Non aggiuntive", voci.filter((x) => !x.agg)) +
     gruppo("Aggiuntive", voci.filter((x) => x.agg)) +
     (fuoriElenco ? `<optgroup label="Categoria di questo scontrino">${opt(fuoriElenco.value, fuoriElenco.label)}</optgroup>` : "");
-  const voglio = extra ? (fuoriElenco ? fuoriElenco.value : (servizioDi(extra, catalogo) ? "s:" + servizioDi(extra, catalogo) : "c:" + extra.categoria)) : prima;
+  const voglio = extra ? (fuoriElenco ? fuoriElenco.value : (kExtra ? "s:" + kExtra : "c:" + extra.categoria)) : prima;
   f.categoria.value = [...f.categoria.options].some((o) => o.value === voglio) ? voglio : f.categoria.options[0]?.value || "";
 }
 /* Categoria scelta nel menu → { categoria, servizio } da salvare */
@@ -543,7 +546,7 @@ function finestra(periodo) {
   if (m) return [oggiIso, piuGiorni(oggiIso, Number(m[1]) * 7 - 1)];
   return null;
 }
-const nomeServizio = (k) => catalogo.servizi.find((x) => x.key === k)?.label || SERVIZI_BASE.find(([x]) => x === k)?.[1] || k;
+const nomeServizio = (k) => catalogo.nomiServizi?.get(k) || SERVIZI_BASE.find(([x]) => x === k)?.[1] || k;
 
 function renderSchede() {
   const sv = $("sc-villa");

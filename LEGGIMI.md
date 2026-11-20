@@ -68,6 +68,14 @@ Elenco costruito da `catalogoCategorie` in `shared/firebase.js`:
   aggiuntive; quelle in `categorieProprietario` sono **a carico del proprietario** (spese normali, mai aggiuntive);
 - **Danni villa** (fissa, sempre aggiuntiva).
 
+**Servizi tolti dall'offerta** (dal 20/11/2026): in Summer Database servizi e voci sono una sola lista con la colonna
+"In offerta". Un servizio tolto dall'offerta ha `off: true` (base: `serviziBase[chiave].off`; aggiunti: `servizi[i].off`)
+e diventa una voce di `categorieSpese` con lo stesso nome. L'app non lo mostra più tra i servizi del menu (così il nome non
+compare due volte). Uno scontrino con `servizio` = chiave di un servizio tolto vale come servizio solo se la sua
+prenotazione lo ha ancora spuntato; altrimenti segue la voce con lo stesso nome (aggiuntiva o a carico del proprietario
+secondo le liste) e, se lo si modifica, viene salvato come voce (`servizio: null`). Nelle Schede prenotazioni i servizi
+tolti mantengono il loro nome.
+
 **Menu Categoria in due gruppi**, come in Summer Database: **Non aggiuntive** e **Aggiuntive**. I servizi stanno nell'uno o
 nell'altro secondo la prenotazione scelta (servizio previsto nella prenotazione = non aggiuntiva) e il menu si riordina
 quando cambia la prenotazione. Le spese a carico del proprietario hanno la dicitura "· a carico del proprietario".
