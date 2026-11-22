@@ -52,8 +52,8 @@ Gli affitti dei clienti in quei giorni sono prenotazioni separate (`acquistoDi` 
 ### Metodo di pagamento (dal 18/11/2026)
 Campo `pagamento`: `"contanti"` | `"carta"` (carta di credito) | `"bonifico"`; `null` o assente = non indicato (`PAGAMENTI`).
 Nel modulo, riquadro "Metodo di pagamento" con tre pulsanti (toccando di nuovo quello scelto si toglie la scelta);
-si salva con `set` per i nuovi e `update` per le modifiche. Uno scontrino senza metodo resta valido: modificandolo senza
-scegliere, il campo resta vuoto (`null`); un valore sconosciuto scritto da Summer Database viene conservato.
+si salva con `set` per i nuovi e `update` per le modifiche. **Dal 22/11/2026 la scelta è obbligatoria**: senza metodo
+lo scontrino non si salva (anche in modifica di uno vecchio senza metodo); un valore sconosciuto scritto da Summer Database viene conservato e vale come scelta.
 In Inseriti il metodo compare accanto alla prenotazione. Lo `storico` delle versioni precedenti lo scrive Summer Database;
 l'app Scontrini usa `update`, quindi non lo tocca.
 

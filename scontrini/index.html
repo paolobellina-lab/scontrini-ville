@@ -80,7 +80,7 @@
           <small id="cat-hint" class="muted" style="font-weight:400"></small>
         </label>
         <div>
-          <span class="campo">Metodo di pagamento</span>
+          <span class="campo">Metodo di pagamento <span style="color:#b3261e" title="Obbligatorio">*</span></span>
           <div class="pagamenti" id="pagamenti" role="group" aria-label="Metodo di pagamento"></div>
         </div>
         <label>Motivo della spesa
@@ -147,7 +147,7 @@ let utentiAccessi = [], caricati = {};
 let catalogo = catalogoCategorie(null); // categorie e servizi da meta/settings (predefiniti finché non si legge)
 let editId = null, fotoNuova = null, prenManuale = false;
 
-/* Metodo di pagamento: tre pulsanti; toccando quello già scelto si toglie la scelta (non indicato) */
+/* Metodo di pagamento (obbligatorio dal 22/11/2026): tre pulsanti; toccando quello già scelto si toglie la scelta, ma senza scelta non si salva */
 let pagamento = null, pagamentoAltro = null; // pagamentoAltro: valore sconosciuto di uno scontrino in modifica, conservato
 $("pagamenti").innerHTML = PAGAMENTI.map(([k, t]) => `<button type="button" class="chip" data-pag="${k}" aria-pressed="false" title="${t}">${k === "carta" ? "Carta" : t}</button>`).join("");
 function scegliPagamento(v) {
@@ -380,6 +380,7 @@ f.onsubmit = async (e) => {
   e.preventDefault();
   const importo = parseImporto(f.importo.value);
   if (!(importo > 0)) return toast("Importo non valido");
+  if (!pagamento && !pagamentoAltro) return toast("Scegli il metodo di pagamento: contanti, carta o bonifico");
   if (!editId && !fotoNuova && !confirm("Salvare lo scontrino senza foto?")) return;
 
   const pSel = pren.find((p) => p.id === f.prenotazioneId.value);
