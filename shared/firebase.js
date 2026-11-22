@@ -338,6 +338,11 @@ export function listen(nome, cb, ...vincoli) {
   );
 }
 
+/* Come listen, ma gli errori vanno a onErr (senza avviso): es. borsellino prima che le regole nuove siano pubblicate. */
+export function listenQuiet(nome, cb, onErr, ...vincoli) {
+  return onSnapshot(query(collection(db, nome), ...vincoli), (snap) => cb(snap.docs.map((d) => ({ ...d.data(), id: d.id }))), (e) => onErr && onErr(e));
+}
+
 /* Ascolta un singolo documento in tempo reale (null se non esiste o non leggibile). */
 export function listenDoc(col, id, cb) {
   return onSnapshot(doc(db, col, id),

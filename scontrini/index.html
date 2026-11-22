@@ -37,6 +37,7 @@
       <nav class="sezioni" aria-label="Sezioni">
         <button type="button" data-sez="scontrini" class="on">Scontrini</button>
         <button type="button" data-sez="schede"><span class="lungo">Schede prenotazioni</span><span class="corto">Prenotazioni</span></button>
+        <button type="button" data-sez="borsellino"><span class="lungo">Il mio borsellino</span><span class="corto">Borsellino</span></button>
       </nav>
     </div></div>
     <div class="actions">
@@ -128,13 +129,48 @@
       <div id="sc-lista"></div>
     </section>
 
+    <!-- Il mio borsellino: contanti in mano (prelievi − spese in contanti), spese personali; correzioni solo dall'amministratore -->
+    <section id="tab-borsellino" hidden>
+      <div class="card center bs-top">
+        <span class="campo">Contanti in mano</span>
+        <strong id="bs-saldo" class="bs-saldo">—</strong>
+        <span id="bs-info" class="muted"></span>
+        <div class="row" style="justify-content:center;margin-top:10px">
+          <button class="btn primary" type="button" data-bsn="prelievo">+ Prelievo contanti</button>
+          <button class="btn" type="button" data-bsn="spesa">+ Spesa personale</button>
+        </div>
+      </div>
+      <form id="bs-f" class="card stack" autocomplete="off" hidden>
+        <h2 id="bs-f-title">Prelievo contanti</h2>
+        <div class="grid2">
+          <label>Data<input type="date" name="data" required></label>
+          <label>Importo (€)<input name="importo" inputmode="decimal" placeholder="0,00" required></label>
+        </div>
+        <label id="bs-voce-w">Voce<select name="voce"></select></label>
+        <div id="bs-pag-w">
+          <span class="campo">Metodo di pagamento <span style="color:#b3261e" title="Obbligatorio">*</span></span>
+          <div class="pagamenti" id="bs-pag" role="group" aria-label="Metodo di pagamento"></div>
+          <small class="muted">Con carta o bonifico la spesa si registra ma non scala i contanti.</small>
+        </div>
+        <label>Nota<input name="nota" placeholder="Es. prelievo bancomat"></label>
+        <div class="photo" id="bs-photo-w">
+          <img id="bs-prev" alt="Foto" hidden>
+          <label class="btn"><input type="file" accept="image/*" id="bs-foto" hidden>Foto dello scontrino</label>
+        </div>
+        <p class="muted" style="margin:0">Dopo il salvataggio solo l'amministratore può correggerlo.</p>
+        <div class="row"><button class="btn primary grow" type="submit">Salva</button><button class="btn" type="button" id="bs-annulla">Annulla</button></div>
+      </form>
+      <div class="row" style="justify-content:space-between;margin:0 2px 10px"><span class="muted">Movimenti in contanti</span></div>
+      <div id="bs-lista" class="list"></div>
+      <div id="bs-altre"></div>
+    </section>
   </main>
 </div>
 <div id="toast" class="toast" hidden></div>
 
 <script type="module">
 import {
-  db, setupAuth, listen, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
+  db, setupAuth, listen, listenQuiet, where, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
   PAGAMENTI, nomePagamento, voceInOfferta, CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
   parseImporto, labelPren, bookingFor, compressImage, toast
 } from "../shared/firebase.js";
@@ -244,6 +280,7 @@ setupAuth({
       // chi è in meta/accessi.utenti non è amministratore: vede solo ciò che gli è assegnato
       listenDoc("meta", "accessi", (d) => { utentiAccessi = d?.utenti || []; caricati.accessi = true; aggiornaVisibilita(); }),
       listenDoc("meta", "settings", (d) => {
+        vociBors = Array.isArray(d?.vociBorsellino) && d.vociBorsellino.length ? d.vociBorsellino : VOCI_BORS_DEF;
         catalogo = catalogoCategorie(d); // se meta/settings non si legge, restano le categorie predefinite
         const inModifica = editId && tutti.find((x) => x.id === editId);
         const sc = sceltaCategoria();
@@ -256,11 +293,13 @@ setupAuth({
           .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
         aggiornaVisibilita();
       }),
-      listen("scontrini", (s) => { tutti = s; renderLista(); renderSchede(); }),
+      listen("scontrini", (s) => { tutti = s; renderLista(); renderSchede(); renderBors(); }),
+      // borsellino: solo i propri movimenti (le regole non lasciano leggere quelli degli altri)
+      listenQuiet("borsellino", (l) => { bors = l; bsErr = null; renderBors(); }, (e) => { bors = []; bsErr = e; renderBors(); }, where("email", "==", (u.email || "").toLowerCase())),
     ];
     resetForm();
   },
-  onLogout() { unsubs.forEach((u) => u()); unsubs = []; assegnazioni = null; vis = null; utentiAccessi = []; caricati = {}; },
+  onLogout() { unsubs.forEach((u) => u()); unsubs = []; assegnazioni = null; vis = null; utentiAccessi = []; caricati = {}; bors = []; },
 });
 
 /* ---------- Schede ---------- */
@@ -268,14 +307,14 @@ document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => showTa
 /* Sezioni in alto: "Scontrini" (schede Nuovo e Inseriti) e "Schede prenotazioni" */
 let ultimaScontrini = "nuovo", bloccatoVis = false;
 document.querySelectorAll("[data-sez]").forEach((b) => (b.onclick = () =>
-  showTab(b.dataset.sez === "schede" ? "schede" : ultimaScontrini)));
+  showTab(b.dataset.sez === "schede" || b.dataset.sez === "borsellino" ? b.dataset.sez : ultimaScontrini)));
 function showTab(t) {
-  const sez = t === "schede" ? "schede" : "scontrini";
+  const sez = t === "schede" ? "schede" : t === "borsellino" ? "borsellino" : "scontrini";
   if (sez === "scontrini") ultimaScontrini = t;
   document.querySelectorAll("[data-sez]").forEach((b) => b.classList.toggle("on", b.dataset.sez === sez));
-  document.querySelector(".tabs").hidden = sez === "schede" || bloccatoVis;
+  document.querySelector(".tabs").hidden = sez !== "scontrini" || bloccatoVis;
   document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
-  ["nuovo", "inseriti", "schede"].forEach((x) => ($("tab-" + x).hidden = x !== t));
+  ["nuovo", "inseriti", "schede", "borsellino"].forEach((x) => ($("tab-" + x).hidden = x !== t));
   window.scrollTo(0, 0);
 }
 
@@ -314,7 +353,7 @@ function aggiornaVisibilita() {
   $("main").classList.toggle("bloccato", vuoto);
   bloccatoVis = vuoto;
   document.querySelector(".sezioni").hidden = vuoto;
-  document.querySelector(".tabs").hidden = vuoto || !$("tab-schede").hidden;
+  document.querySelector(".tabs").hidden = vuoto || !$("tab-schede").hidden || !$("tab-borsellino").hidden;
   $("assegn-info").hidden = !vis || vuoto;
   $("assegn-info").textContent = "Vedi solo le ville e le prenotazioni assegnate al tuo account.";
   if (editId) { // lo scontrino in modifica non è più visibile → chiudo la modifica
@@ -618,6 +657,66 @@ function renderSchede() {
 try { const pr = localStorage.getItem("periodo-schede"); if (pr && [...$("sc-periodo").options].some((o) => o.value === pr)) $("sc-periodo").value = pr; } catch {}
 $("sc-periodo").addEventListener("change", () => { try { localStorage.setItem("periodo-schede", $("sc-periodo").value); } catch {} });
 $("sc-q").oninput = renderSchede;
+/* ---------- Il mio borsellino ----------
+   Entrate: prelievi (borsellino tipo "prelievo") e addebiti incassati in contanti (scontrini "Addebito cliente/proprietario").
+   Uscite: note spese pagate in contanti (scontrini.contantiDi, o chi le ha inserite), restituzioni del deposito in contanti,
+   spese personali in contanti, contanti riconsegnati. Le spese personali con carta o bonifico non scalano i contanti. */
+const VOCI_BORS_DEF = ["Pausa pranzo", "Benzina", "Rimborso", "Altro"];
+const TIPI_BORS = { prelievo: "Prelievo contanti", spesa: "Spesa personale", riconsegna: "Contanti riconsegnati" };
+let bors = [], bsErr = null, vociBors = VOCI_BORS_DEF, bsTipo = null, bsPag = null, bsFoto = null;
+function movBors() {
+  const me = (user?.email || "").toLowerCase(); const out = [];
+  tutti.forEach((s) => {
+    if (s.pagamento !== "contanti" || String(s.contantiDi || s.creatoDa || "").toLowerCase() !== me) return;
+    const entr = s.categoria === "Addebito cliente" || s.categoria === "Addebito proprietario";
+    const v = ville.find((x) => x.id === s.villaId);
+    out.push({ data: s.data || "", segno: entr ? 1 : -1, importo: Number(s.importo) || 0, titolo: s.categoria + (entr ? " (incassato)" : ""), sotto: [v?.nome, s.motivo].filter(Boolean).join(" · ") });
+  });
+  bors.forEach((x) => {
+    const met = x.tipo === "spesa" ? x.pagamento || "contanti" : "contanti";
+    if (met !== "contanti") return;
+    out.push({ data: x.data || "", segno: x.tipo === "prelievo" ? 1 : -1, importo: Number(x.importo) || 0, titolo: TIPI_BORS[x.tipo] || x.tipo, sotto: [x.tipo === "spesa" ? x.voce : "", x.nota].filter(Boolean).join(" · ") });
+  });
+  return out.sort((a, b) => a.data.localeCompare(b.data));
+}
+function renderBors() {
+  if (!$("tab-borsellino")) return;
+  const l = movBors(); let run = 0; l.forEach((m) => { run += m.segno * m.importo; m.run = run; });
+  $("bs-saldo").textContent = euro(run); $("bs-saldo").classList.toggle("neg", run < 0);
+  $("bs-info").textContent = bsErr ? "Borsellino non ancora attivo: l'amministratore deve pubblicare le regole nuove." : `${l.length} ${l.length === 1 ? "movimento" : "movimenti"} in contanti`;
+  const sg = (n) => (n > 0 ? "+" : "−") + euro(Math.abs(n));
+  $("bs-lista").innerHTML = l.length ? l.slice().reverse().map((m) => `<div class="item"><div class="item-main"><strong>${esc(m.titolo)}</strong><span class="muted">${dataIt(m.data)}${m.sotto ? " · " + esc(m.sotto) : ""}</span></div>
+    <div class="amount ${m.segno > 0 ? "pos" : "neg"}">${sg(m.segno * m.importo)}<small>in mano ${euro(m.run)}</small></div></div>`).join("") : '<p class="muted center" style="padding:18px 0">Nessun movimento in contanti.</p>';
+  const altre = bors.filter((x) => x.tipo === "spesa" && (x.pagamento || "contanti") !== "contanti").sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  $("bs-altre").innerHTML = altre.length ? `<p class="muted" style="margin:16px 2px 8px">Spese personali con carta o bonifico (non scalano i contanti)</p><div class="list">${altre.map((x) => `<div class="item"><div class="item-main"><strong>${esc(x.voce || "Spesa personale")}</strong><span class="muted">${dataIt(x.data)} · ${esc(nomePagamento(x.pagamento))}${x.nota ? " · " + esc(x.nota) : ""}</span></div><div class="amount">${euro(x.importo)}</div></div>`).join("")}</div>` : "";
+}
+$("bs-pag").innerHTML = PAGAMENTI.map(([k, t]) => `<button type="button" class="chip" data-bpag="${k}">${k === "carta" ? "Carta" : t}</button>`).join("");
+const scegliBsPag = (v) => { bsPag = v; document.querySelectorAll("[data-bpag]").forEach((b) => b.classList.toggle("on", b.dataset.bpag === v)); };
+$("bs-pag").onclick = (e) => { const b = e.target.closest("[data-bpag]"); if (b) scegliBsPag(b.dataset.bpag); };
+const bsF = $("bs-f");
+document.querySelectorAll("[data-bsn]").forEach((b) => (b.onclick = () => {
+  bsTipo = b.dataset.bsn; bsFoto = null; bsF.reset(); bsF.data.value = oggi(); scegliBsPag(bsTipo === "spesa" ? null : "contanti");
+  $("bs-f-title").textContent = TIPI_BORS[bsTipo];
+  bsF.voce.innerHTML = vociBors.map((v) => `<option>${esc(v)}</option>`).join("");
+  $("bs-voce-w").hidden = $("bs-pag-w").hidden = $("bs-photo-w").hidden = bsTipo !== "spesa";
+  bsF.nota.placeholder = bsTipo === "prelievo" ? "Es. prelievo bancomat, dati da…" : "";
+  $("bs-prev").hidden = true; bsF.hidden = false; bsF.importo.focus();
+}));
+$("bs-annulla").onclick = () => { bsF.hidden = true; };
+$("bs-foto").onchange = async (e) => { const fl = e.target.files[0]; e.target.value = ""; if (!fl) return; try { bsFoto = await compressImage(fl); $("bs-prev").src = bsFoto; $("bs-prev").hidden = false; } catch { toast("Non riesco a leggere questa foto"); } };
+bsF.onsubmit = async (e) => {
+  e.preventDefault();
+  const importo = parseImporto(bsF.importo.value);
+  if (!(importo > 0)) return toast("Importo non valido");
+  if (bsTipo === "spesa" && !bsPag) return toast("Scegli il metodo di pagamento: contanti, carta o bonifico");
+  const me = (user?.email || "").toLowerCase();
+  const ref = doc(collection(db, "borsellino")); const b = writeBatch(db);
+  b.set(ref, { email: me, tipo: bsTipo, importo, data: bsF.data.value, nota: bsF.nota.value.trim(), voce: bsTipo === "spesa" ? bsF.voce.value : null,
+    pagamento: bsTipo === "spesa" ? bsPag : "contanti", hasFoto: !!bsFoto, creatoDa: me, creatoIl: serverTimestamp() });
+  if (bsFoto) b.set(doc(db, "borsellino_foto", ref.id), { email: me, img: bsFoto });
+  try { await b.commit(); bsF.hidden = true; toast("Salvato"); }
+  catch (x) { toast(x.code === "permission-denied" ? "Borsellino non ancora attivo: chiedi all'amministratore" : "Salvataggio non riuscito: " + x.message); }
+};
 $("sc-lista").onclick = (e) => {
   const b = e.target.closest("[data-nuovo-per]");
   const p = b && pren.find((x) => x.id === b.dataset.nuovoPer);

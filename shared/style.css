@@ -290,3 +290,8 @@ label.check:has(input:disabled) { opacity: .5; cursor: default; }
 /* Metodo di pagamento */
 .pagamenti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .pagamenti .chip { padding: 11px 6px; text-align: center; font-size: .9rem; }
+/* Il mio borsellino */
+.bs-top { display: grid; gap: 4px; justify-items: center; }
+.bs-saldo { font-family: var(--serif); font-weight: 500; font-size: 2.4rem; font-variant-numeric: lining-nums tabular-nums; }
+.bs-saldo.neg, .amount.neg { color: #b3261e; }
+.amount.pos { color: #1b7a3a; }

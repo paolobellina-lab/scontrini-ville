@@ -116,6 +116,20 @@ dei filtri), sono escluse da tutti i conteggi e totali e non vengono mai toccate
 `scontrini` con la stessa struttura: l'app li filtra soltanto. Così gli importi pagati al proprietario, i depositi
 restituiti, gli addebiti e le commissioni d'agenzia non sono visibili ai collaboratori.
 
+### Il mio borsellino (dal 22/11/2026)
+Terza sezione in alto, **"Il mio borsellino"**: i contanti in mano all'account collegato.
+- **Entrate**: prelievi (collezione `borsellino`, tipo `prelievo`) e, in contanti, gli addebiti incassati
+  ("Addebito cliente" / "Addebito proprietario", inseriti da Summer Database).
+- **Uscite**: note spese pagate in contanti (`pagamento: 'contanti'`) del proprio borsellino (`scontrini.contantiDi`, o, se manca,
+  chi le ha inserite), anche la "Restituzione deposito sicurezza" in contanti; spese personali in contanti; contanti riconsegnati.
+  Qui le categorie riservate compaiono con nome e importo, ma solo quelle del proprio borsellino (decisione del proprietario).
+- **+ Prelievo contanti** e **+ Spesa personale** (voci da `meta/settings.vociBorsellino`, di norma Pausa pranzo, Benzina, Rimborso, Altro;
+  metodo di pagamento obbligatorio; foto facoltativa in `borsellino_foto/{id}`). Le spese personali con carta o bonifico si registrano
+  ma non scalano i contanti (elenco a parte).
+- `borsellino/{id}` = `{ email (proprietario del borsellino, minuscolo), tipo: 'prelievo'|'spesa'|'riconsegna', voce, pagamento, importo,
+  data, nota, hasFoto, creatoDa, creatoIl }`. Si leggono solo i propri (`where('email', '==', …)`, `listenQuiet`); dopo il salvataggio
+  solo l'amministratore può modificarli o cancellarli (da Summer Database, pagina Borsellini). Le regole lo impongono.
+
 ## Chi può entrare
 
 L'elenco degli account si gestisce in Summer Database (Impostazioni → Account e accessi, documento `meta/accessi`).
