@@ -172,7 +172,7 @@
 import {
   db, setupAuth, listen, listenQuiet, where, listenDoc, collection, doc, getDoc, serverTimestamp, writeBatch,
   PAGAMENTI, nomePagamento, voceInOfferta, CAT_DANNI, catalogoCategorie, servizioDi, calcolaAggiuntiva, isRiservata, importoSpesa, aCaricoProprietario, COLL, SERVIZI_BASE, isoLocale, normVilla, normPren, fotoPren, trovaPren, euro, dataIt, oggi, esc,
-  parseImporto, labelPren, bookingFor, compressImage, toast
+  parseImporto, labelPren, bookingFor, compressImage, toast, telLink
 } from "../shared/firebase.js";
 
 const $ = (id) => document.getElementById(id);
@@ -610,7 +610,7 @@ function renderSchede() {
   if (fin) lista = lista.filter((p) => p.checkIn <= fin[1] && p.checkOut >= fin[0]).sort((a, b) => a.checkIn.localeCompare(b.checkIn));
   else if (periodo === "passate") lista = lista.filter((p) => p.checkOut < oggiIso).sort((a, b) => b.checkIn.localeCompare(a.checkIn));
   else lista = lista.slice().sort((a, b) => b.checkIn.localeCompare(a.checkIn));
-  if (q) lista = lista.filter((p) => [nomeV(p.villaId), p.cliente, p.note, ...p.servizi.map(nomeServizio), ...Object.values(p.noteServizi)]
+  if (q) lista = lista.filter((p) => [nomeV(p.villaId), p.cliente, p.note, ...p.occupanti.map((o) => o.nome), ...p.servizi.map(nomeServizio), ...Object.values(p.noteServizi)]
     .join(" ").toLowerCase().includes(q));
 
   // scontrini collegati a ciascuna prenotazione
@@ -640,6 +640,9 @@ function renderSchede() {
         <div><span class="campo">Check-out</span><strong>${giorno(p.checkOut)}</strong>${p.late ? '<em>Late check-out</em>' : ""}</div>
         <div><span class="campo">Notti</span><strong>${notti(p.checkIn, p.checkOut)}</strong></div>
       </div>
+      ${p.telefono || p.email || p.occupanti.length ? `<div class="scheda-blocco"><span class="campo">Ospiti e contatti</span>
+        <ul class="servizi">${p.telefono || p.email ? `<li><b>${esc(p.cliente || "Cliente")}</b><span>${[p.telefono ? telA(p.telefono) : "", p.email ? `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>` : ""].filter(Boolean).join(" · ")}</span></li>` : ""}
+        ${p.occupanti.map((o) => `<li><b>${esc(o.nome || "—")}</b>${o.leader ? ' <span class="tag">party leader</span>' : ""}${o.tel ? `<span>${telA(o.tel)}</span>` : ""}</li>`).join("")}</ul></div>` : ""}
       <div class="scheda-blocco"><span class="campo">Servizi</span>
         ${servizi.length ? `<ul class="servizi">${servizi.map((k) => `<li><b>${esc(nomeServizio(k))}</b>${p.noteServizi[k] ? `<span>${esc(p.noteServizi[k])}</span>` : ""}</li>`).join("")}</ul>`
           : '<p class="muted">Nessun servizio</p>'}
@@ -656,6 +659,7 @@ function renderSchede() {
 // il periodo scelto resta ricordato su questo dispositivo
 try { const pr = localStorage.getItem("periodo-schede"); if (pr && [...$("sc-periodo").options].some((o) => o.value === pr)) $("sc-periodo").value = pr; } catch {}
 $("sc-periodo").addEventListener("change", () => { try { localStorage.setItem("periodo-schede", $("sc-periodo").value); } catch {} });
+const telA = (t) => { const n = telLink(t); return n ? `<a href="tel:${esc(n)}">${esc(t)}</a> · <a href="https://wa.me/${esc(n.replace(/^\+/, ""))}" target="_blank" rel="noopener">WhatsApp</a>` : esc(t); };
 $("sc-q").oninput = renderSchede;
 /* ---------- Il mio borsellino ----------
    Entrate: prelievi (borsellino tipo "prelievo") e addebiti incassati in contanti (scontrini "Addebito cliente/proprietario").

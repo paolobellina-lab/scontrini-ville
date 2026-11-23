@@ -55,7 +55,14 @@ export const normPren = (b) => ({
   // voci delle note spese comprese nell'offerta da cui è nata la prenotazione (dal 20/11/2026);
   // null = prenotazione inserita a mano (campo assente). Si copia solo l'elenco dei nomi.
   vociOfferta: Array.isArray(b.vociOfferta) ? b.vociOfferta.map((x) => String(x || "").trim()).filter(Boolean) : null,
+  // contatti e occupanti (dal 23/11/2026): telefono ed email del cliente, party leader e persone del gruppo con il cellulare
+  telefono: String(b.telefono || "").trim(), email: String(b.email || "").trim(),
+  occupanti: [b.leader, ...(Array.isArray(b.persone) ? b.persone : [])]
+    .map((x, i) => ({ nome: String((x && x.nome) || "").trim(), tel: String((x && x.tel) || "").trim(), leader: i === 0 }))
+    .filter((x, i) => (x.nome || x.tel) && !(i === 0 && !b.leader)),
 });
+/* link per chiamare e per WhatsApp da un numero scritto a mano (cellulare italiano senza prefisso → +39) */
+export const telLink = (t) => { let d = String(t || "").replace(/[^\d+]/g, ""); if (d.startsWith("00")) d = "+" + d.slice(2); if (!d.startsWith("+") && /^3\d{8,9}$/.test(d)) d = "+39" + d; return d; };
 /* Servizi di base della scheda prenotazione di Summer Database; gli altri arrivano da meta/settings.servizi */
 export const SERVIZI_BASE = [["pulizia", "Pulizia finale"], ["cuoco", "Cuoco"], ["transfer", "Transfer"]];
 /* Copia dei dati essenziali della prenotazione salvata dentro lo scontrino:

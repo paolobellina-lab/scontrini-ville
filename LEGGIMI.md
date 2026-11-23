@@ -116,6 +116,11 @@ dei filtri), sono escluse da tutti i conteggi e totali e non vengono mai toccate
 `scontrini` con la stessa struttura: l'app li filtra soltanto. Così gli importi pagati al proprietario, i depositi
 restituiti, gli addebiti e le commissioni d'agenzia non sono visibili ai collaboratori.
 
+### Ospiti e contatti nelle Schede prenotazioni (dal 23/11/2026)
+Blocco "Ospiti e contatti" di ogni scheda: telefono ed email del cliente (`bookings.telefono`, `bookings.email`), party leader
+(`bookings.leader = { nome, tel }`) e persone del gruppo (`bookings.persone = [{ nome, tel }]`), con i link Chiama e WhatsApp
+(`telLink`: cellulare italiano senza prefisso → +39). `normPren` li copia in `telefono`, `email`, `occupanti`. Anche nella ricerca.
+
 ### Il mio borsellino (dal 22/11/2026)
 Terza sezione in alto, **"Il mio borsellino"**: i contanti in mano all'account collegato.
 - **Entrate**: prelievi (collezione `borsellino`, tipo `prelievo`) e, in contanti, gli addebiti incassati
