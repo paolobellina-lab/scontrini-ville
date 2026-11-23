@@ -121,6 +121,11 @@ Blocco "Ospiti e contatti" di ogni scheda: telefono ed email del cliente (`booki
 (`bookings.leader = { nome, tel }`) e persone del gruppo (`bookings.persone = [{ nome, tel }]`), con i link Chiama e WhatsApp
 (`telLink`: cellulare italiano senza prefisso → +39). `normPren` li copia in `telefono`, `email`, `occupanti`. Anche nella ricerca.
 
+### Ore previste dei servizi a ore (dal 23/11/2026)
+Nelle Schede prenotazioni, accanto al servizio, "Ore previste: Chef 6 h/giorno × 14 gg = 84 h" (`bookings.serviziDett[chiave].orePreviste`,
+scritto da Summer Database con Prenota dall'offerta o a mano), insieme alla nota del servizio (`normPren.noteServizi`). Le ore oltre
+quelle previste si registrano con una voce a parte (es. "Chef – ore extra"), che resta una spesa aggiuntiva.
+
 ### Il mio borsellino (dal 22/11/2026)
 Terza sezione in alto, **"Il mio borsellino"**: i contanti in mano all'account collegato.
 - **Entrate**: prelievi (collezione `borsellino`, tipo `prelievo`) e, in contanti, gli addebiti incassati

@@ -46,8 +46,9 @@ export const normPren = (b) => ({
   checkIn: b.from, checkOut: b.to, status: b.status || "", note: b.note || "",
   early: !!b.earlyIn, late: !!b.lateOut,
   servizi: [...SERVIZI_BASE.map(([k]) => k).filter((k) => b[k]), ...(Array.isArray(b.servizi) ? b.servizi : [])],
+  // nota del servizio e, per i servizi a ore, le ore previste nell'offerta (serviziDett[chiave].orePreviste, dal 23/11/2026)
   noteServizi: Object.fromEntries(Object.entries(b.serviziDett || {})
-    .map(([k, d]) => [k, String((d && d.note) || "").trim()]).filter(([, n]) => n)),
+    .map(([k, d]) => [k, [String((d && d.orePreviste) || "").trim() ? "Ore previste: " + String(d.orePreviste).trim() : "", String((d && d.note) || "").trim()].filter(Boolean).join(" · ")]).filter(([, n]) => n)),
   // servizi che la prenotazione ha "a carico del proprietario" (serviziDett[chiave].carico, dal 20/11/2026):
   // si copia solo questo, non prezzi né altri dati del servizio
   serviziProprietario: Object.entries(b.serviziDett || {})
